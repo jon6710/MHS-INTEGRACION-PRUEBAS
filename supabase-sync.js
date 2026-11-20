@@ -584,11 +584,19 @@ async function automaticSync(){
   showStatus('Conectado a Supabase. Los cambios se sincronizan automáticamente.');
  }catch(e){
   showStatus(e?.message||String(e),true);
-  if(!bootstrapDone)showLogin();
+  // Una incidencia de sincronización no revoca la sesión ya autenticada.
+  // No se reenvían cambios sin verificar ni se modifica el historial remoto.
+  if(sessionUser)hideLogin();else showLogin();
  }finally{autoBusy=false;}
 }
 function requestSync(){if(auto)void automaticSync();}
-function onAuthenticated(){auto=true;bootstrapDone=false;showLogin();showStatus('Recuperando tus datos de Supabase…');requestSync();}
+function onAuthenticated(){
+ auto=true;bootstrapDone=false;
+ // El acceso depende de la autenticación, no de publicar/descargar datos.
+ hideLogin();
+ showStatus('Sesión iniciada. Comprobando sincronización…');
+ requestSync();
+}
 function initUI(){
  const indicator=document.createElement('button');
  indicator.id='hms-sync-indicator';indicator.type='button';indicator.className='hms-connection';

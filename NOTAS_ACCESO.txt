@@ -1,0 +1,1 @@
+Corrección limitada al acceso tras reapertura. Si Supabase tiene una publicación sin verificar, la sesión autenticada permite entrar, pero el envío sigue bloqueado hasta resolver el conflicto. No se han cambiado datos ni permisos de Supabase. No se ha verificado el servidor real.
