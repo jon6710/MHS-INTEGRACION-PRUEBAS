@@ -1,0 +1,17 @@
+MHS-INTEGRACION-PRUEBAS — incorporación controlada de Observaciones
+
+Base: MHS_INTEGRACION_CORRECCION_ACCESO_REAPERTURA.zip (versión que el usuario confirmó que entra y reabre correctamente).
+Referencia: MHS-OBSERVACIONES-PRUEBAS-main (1).zip.
+
+CAMBIOS
+- app.js: solo se trasladó la mejora de Observaciones de la versión de referencia (campos editables de biocida, texto inicial en hojas nuevas de Autoclave y Mobiliario, aviso en el espacio de Observaciones y anexo A4 para esos documentos).
+- sw.js: identificador de caché actualizado.
+- Hojas existentes: conservan el diseño previo al no estar marcadas con mhsObsDefaultV1.
+- Archivos de plantillas y fondos gráficos: no modificados.
+- Acceso Supabase, sincronización y fotografía: sin modificaciones.
+
+IMPORTANTE
+- El texto inicial y los datos del biocida fueron transcritos de una fotografía en la versión original y NO están verificados para uso profesional. Revisión obligatoria antes de emitir documentos reales.
+- Las fotos siguen pendientes de reparación para su subida y sincronización entre dispositivos. Este ZIP NO resuelve ese defecto.
+- No se ha verificado inicio de sesión real contra Supabase, impresión física ni comportamiento entre dispositivos desde este entorno.
+- No subir copias JSON de clientes a GitHub.

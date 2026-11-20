@@ -1,0 +1,5 @@
+STORAGE EXISTENTE: adjuntos
+Proyecto: Mis Hojas de Servicio App
+No ejecutar SQL ni crear buckets nuevos.
+El paquete utiliza el bucket «adjuntos» existente. Su contenido es privado según la configuración real del proyecto. Confirmar manualmente que las políticas vigentes permiten a los usuarios autenticados subir, descargar y actualizar SOLO sus propios archivos.
+No cambiar políticas hasta conocer las existentes y autorizarlas expresamente.

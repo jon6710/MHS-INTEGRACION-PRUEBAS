@@ -75,7 +75,32 @@ function moduleFeatures(type){const f={madera:['Fotos antes / después','Modalid
 function renderModuleOverview(type){currentId=null;const m=typeMeta[type],items=state.services.filter(s=>s.type===type).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));app.innerHTML=`<section class="module-hero module-hero-${type}"><div class="module-hero-icon">${m.icon}</div><div><span class="eyebrow">MÓDULO</span><h1>${m.name}</h1><p>${m.desc}</p></div><button class="btn" id="moduleNew">+ Nueva hoja</button></section><div class="module-overview-grid"><section class="panel"><h2>Qué incluye</h2><div class="feature-list">${moduleFeatures(type).map(x=>`<div>✓ ${esc(x)}</div>`).join('')}</div></section><section class="panel"><h2>Flujo</h2><div class="mini-flow"><span>Hoja</span><b>→</b><span>Documentación</span><b>→</b><span>Facturación</span><b>→</b><span>Certificado</span></div></section></div><section class="list-card"><div class="list-head"><h2>Expedientes / hojas de ${m.name}</h2><span class="tag">${items.length}</span></div><div class="service-list">${items.length?items.map(s=>row(s)).join(''):'<div class="empty">No hay hojas todavía en este módulo.</div>'}</div></section>`;$('#moduleNew').onclick=()=>createService(type);bindServiceRows()}
 function renderArea(area){const labels={albaranes:'Albaranes',facturacion:'Facturación',documentos:'Documentos'},title=labels[area]||area;let eligible=state.services;if(area==='albaranes')eligible=eligible.filter(s=>['autoclave','mobiliario'].includes(s.type));app.innerHTML=`<section class="hero"><div><span class="eyebrow">ÁREA COMÚN</span><h1>${title}</h1><p>Acceso central a los documentos generados desde cada hoja de servicio.</p></div></section><section class="list-card"><div class="list-head"><h2>Servicios disponibles</h2><span class="tag">${eligible.length}</span></div><div class="service-list">${eligible.length?eligible.map(s=>`<div class="service-row area-row"><div><b>${typeMeta[s.type].icon} ${esc(typeMeta[s.type].name)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div><small>${esc(s.date||'')}</small></div><div><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div></div><button class="btn secondary" data-area-open="${s.id}">Abrir hoja</button></div>`).join(''):'<div class="empty">Todavía no hay documentos disponibles.</div>'}</div></section>`;app.querySelectorAll('[data-area-open]').forEach(b=>b.onclick=()=>{currentId=b.dataset.areaOpen;setActiveNav(getCurrent()?.type);renderService()})}
 function row(s){const m=typeMeta[s.type]||{};return `<div class="service-row"><div><b>${m.icon||''} ${esc(m.name||s.type)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div class="hide-mobile"><small>${esc(s.date||'')}</small><br>${esc(s.client?.address||'')}</div><div class="hide-tablet"><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div class="hide-tablet"><small>${new Date(s.updatedAt).toLocaleDateString('es-ES')}</small></div><div class="row-actions"><button class="btn secondary" data-edit="${s.id}">Abrir</button><button class="btn red" data-delete-service="${s.id}">Eliminar</button></div></div>`}
-function createService(type){const s=commonNew(type);s.baseNumber=nextServiceBase();s.number=serviceDocNo(s,'HS');state.services.unshift(s);save();currentId=s.id;setActiveNav(type);renderService()}
+
+// PRUEBA AISLADA: textos por defecto solo para hojas nuevas de Mobiliario/Autoclave.
+// Los datos legales/técnicos se mantienen editables y deben comprobarse con la etiqueta vigente.
+const MHS_OBS_DEFAULT = `LAS CONDICIONES IDÓNEAS DE HUMEDAD PARA EL TRATAMIENTO DE LA MADERA ES DEL 20% AL INICIO DEL PROCESO DE TRATAMIENTO.
+EL CLIENTE TENDRÁ DERECHO A QUE SE LE COMPRUEBE LA HUMEDAD EN SU PRESENCIA O EN LA DE UNA PERSONA DESIGNADA POR ÉL. EN EL CASO DE NO SOLICITARLO, ENTENDEMOS QUE CONOCE EL GRADO DE HUMEDAD.
+CONSIENTE/AUTORIZA EFECTUAR UN TRATAMIENTO DE PULVERIZADO MANUAL (2 MANOS) A LAS PARTIDAS RELACIONADAS EN ESTE ALBARÁN.`;
+const MHS_BIOCIDE_DEFAULTS = {
+  bioRegistration: 'DGSP 13-30-06710',
+  bioActives: 'Cipermetrina 40/60, Propiconazol, Tebuconazol, 3-iodo-propinilbutil carbamato',
+  bioProduct: 'Madera tratada con producto biocida TP-8',
+  bioProperties: 'Insecticida y fungicida',
+  bioNano: 'No contiene',
+  bioInstructions: 'Tener en cuenta el mecanizado y las medidas de protección para las personas, animales y el medio ambiente en la manipulación de este artículo.'
+};
+function mhsObsFields(d){
+ return `<div class="notice" style="margin-top:10px"><b>Texto de observaciones automático y editable.</b> Los datos del biocida también se pueden cambiar en cada hoja. Comprueba la etiqueta y el registro vigentes antes de emitir documentos.</div><div class="grid">${field('bioRegistration','N.º de registro del biocida',d.bioRegistration??'')}${textarea('bioActives','Materias activas (editable)',d.bioActives??'')}${field('bioProduct','Descripción del biocida',d.bioProduct??'')}${field('bioProperties','Propiedad biocida',d.bioProperties??'')}${field('bioNano','Nanomateriales',d.bioNano??'')}${textarea('bioInstructions','Instrucciones de uso',d.bioInstructions??'')}</div>`;
+}
+function mhsObsCollect(d){for(const k of Object.keys(MHS_BIOCIDE_DEFAULTS)){const el=$('#'+k);if(el)d[k]=el.value}}
+function mhsObsAnnex(s,kind){
+ if(!s.data?.mhsObsDefaultV1)return null;
+ const d=s.data, obs=kind==='delivery' ? (d.documentReceipt?.notes|| (s.type==='autoclave'?d.autoObs:d.furnObs)||'') : ((s.type==='autoclave'?d.autoObs:d.furnObs)||'');
+ // Anexo únicamente en hojas nuevas de este piloto. No afecta a documentos históricos.
+ return {number:s.number||'',observations:obs,registration:d.bioRegistration||'',actives:d.bioActives||'',product:d.bioProduct||'',properties:d.bioProperties||'',nano:d.bioNano||'',instructions:d.bioInstructions||''};
+}
+
+function createService(type){const s=commonNew(type);if(type==='autoclave'||type==='mobiliario'){s.data={mhsObsDefaultV1:true,...MHS_BIOCIDE_DEFAULTS,[type==='autoclave'?'autoObs':'furnObs']:MHS_OBS_DEFAULT}}s.baseNumber=nextServiceBase();s.number=serviceDocNo(s,'HS');state.services.unshift(s);save();currentId=s.id;setActiveNav(type);renderService()}
 function renderService(){const s=getCurrent();if(!s)return renderDashboard();setActiveNav(s.type);if(s.type==='madera')return renderMadera(s);if(s.type==='autoclave')return renderAutoclave(s);if(s.type==='ddd')return renderDDD(s);if(s.type==='mobiliario')return renderMobiliario(s);return renderTermitas(s)}
 function toolbar(s,{transport=false,billing=true,certificate=true}={}){
  const n=(s.attachments||[]).length;
@@ -103,7 +128,7 @@ function photoSection(s){return `<section class="section"><h3>Fotos antes y desp
 function photoBox(id,title,src){return `<div class="photo-box"><h4>${title}</h4><div class="photo-preview" id="${id}Preview">${src?`<img src="${src}" alt="${title}">`:'Sin foto'}</div><input id="${id}" type="file" accept="image/*"></div>`}
 function bindPhoto(id,s,key){
  const inp=$('#'+id);if(!inp)return;
- inp.onchange=async()=>{const f=inp.files?.[0];if(!f)return;try{const data=await compressImage(f);s.photos=s.photos||{};s.photos[key]=data;s.updatedAt=new Date().toISOString();let blobId='';if(window.MHSOffline){const blob=await (await fetch(data)).blob();blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-${key}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:key})}save();/* La fotografía se conserva en IndexedDB y en el estado hasta completar Storage. */$('#'+id+'Preview').innerHTML=`<img src="${data}" alt="Foto ${key}">`;toast(navigator.onLine?'Foto guardada · pendiente de sincronizar':'Foto guardada sin conexión')}catch(e){alert('No se pudo procesar la foto.')}};
+ inp.onchange=async()=>{const f=inp.files?.[0];if(!f)return;try{const data=await compressImage(f);s.photos=s.photos||{};s.photos[key]=data;if(s.photoCloud)delete s.photoCloud[key];s.updatedAt=new Date().toISOString();let blobId='';if(window.MHSOffline){const blob=await (await fetch(data)).blob();blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-${key}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:key})}save();/* La fotografía se conserva en IndexedDB y en el estado hasta completar Storage. */$('#'+id+'Preview').innerHTML=`<img src="${data}" alt="Foto ${key}">`;toast(navigator.onLine?'Foto guardada · pendiente de sincronizar':'Foto guardada sin conexión')}catch(e){alert('No se pudo procesar la foto.')}};
 }
 function compressImage(file){return new Promise((res,rej)=>{const r=new FileReader();r.onerror=rej;r.onload=()=>{const img=new Image();img.onerror=rej;img.onload=()=>{const max=1280;let w=img.width,h=img.height;if(Math.max(w,h)>max){const k=max/Math.max(w,h);w=Math.round(w*k);h=Math.round(h*k)}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',.76))};img.src=r.result};r.readAsDataURL(file)})}
 
@@ -160,7 +185,7 @@ function renderAutoclave(s){
  <div class="notice warn" id="autoIncompleteNotice" hidden>Hay filas incompletas o con medidas no válidas: no se incluyen en el total. Comprueba unidades enteras y dimensiones positivas.</div>
  <div class="notice" id="autoLegacyNotice" hidden>Esta hoja tenía una medición manual anterior. Se conserva hasta que completes una fila de medidas válida.</div>
  <div class="kpis"><div class="kpi"><span>Cliente</span><strong id="aDeclared">—</strong></div><div class="kpi"><span>Nuestra medición</span><strong id="aChecked">—</strong></div><div class="kpi"><span>Diferencia</span><strong id="aDiff">—</strong></div><div class="kpi"><span>Diferencia %</span><strong id="aPct">—</strong></div></div></div></section>
- <section class="section"><h3>4. m³ a facturar</h3><div class="inner"><div class="grid">${field('billM3','m³ a facturar',d.billM3||'','text','readonly class="readonly"')}${field('autoPriceM3','Precio €/m³',d.autoPriceM3||'','text','inputmode="decimal"')}</div><div class="notice"><b>Regla fija:</b> m³ a facturar = nuestra medición, truncada a 4 decimales, sin redondear.</div><div class="totals"><div class="total"><span>Base estimada</span><strong id="aBase">—</strong></div><div class="total"><span>IVA 21 %</span><strong id="aVat">—</strong></div><div class="total"><span>Total</span><strong id="aTotal">—</strong></div></div></div></section>${photoSection(s)}${textarea('autoObs','Observaciones',d.autoObs||'')}</div></div>`;
+ <section class="section"><h3>4. m³ a facturar</h3><div class="inner"><div class="grid">${field('billM3','m³ a facturar',d.billM3||'','text','readonly class="readonly"')}${field('autoPriceM3','Precio €/m³',d.autoPriceM3||'','text','inputmode="decimal"')}</div><div class="notice"><b>Regla fija:</b> m³ a facturar = nuestra medición, truncada a 4 decimales, sin redondear.</div><div class="totals"><div class="total"><span>Base estimada</span><strong id="aBase">—</strong></div><div class="total"><span>IVA 21 %</span><strong id="aVat">—</strong></div><div class="total"><span>Total</span><strong id="aTotal">—</strong></div></div></div></section>${photoSection(s)}${textarea('autoObs','Observaciones',d.autoObs||'')}${mhsObsFields(d)}</div></div>`;
  // Guardamos el valor anterior solo para compatibilidad con hojas antiguas.
  $('#checkedM3').dataset.legacy=d.checkedM3||'';
  bindCommon(s,collectAutoclave,{transport:true});
@@ -174,6 +199,7 @@ function renderAutoclave(s){
 function collectAutoclave(s){
  commonCollect(s);const d=s.data=s.data||{};
  ['clientDeliveryNo','declaredM3','checkMethod','autoPriceM3','autoObs'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});
+ mhsObsCollect(d);
  d.autoMeasurements=autoRowsFromUI();
  calcAutoclave();
  d.checkedM3=$('#checkedM3').value;
@@ -266,7 +292,7 @@ function furnUpdate(){
 }
 function renderMobiliario(s){
  const d=s.data||{},items=furnRows(d);const current=items.length?items:[{id:uid()}];
- app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Mobiliario')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Muebles y espacio necesario en autoclave</h3><div class="inner"><div id="furnItemsBody">${current.map(r=>furnRowHTML(r,s)).join('')}</div><div class="auto-measure-actions"><button type="button" class="btn secondary" id="furnAdd">+ Añadir mueble</button><small>Un apartado de medidas y una fotografía por mueble.</small></div><div class="notice"><b>Volumen total: <span id="furnTotal">0,0000</span> m³</b><div id="furnVolumeNotice"></div></div><div class="notice" style="margin-top:9px"><b>Base de los muebles (sin IVA): <span id="furnPriceTotal">0,00 €</span></b><div>Precio manual por unidad × cantidad, aplicando descuento e IVA por cada mueble. El volumen no interviene en el precio.</div></div><div class="notice warn" id="furnPriceInvalid" hidden>Comprueba los precios, descuentos (0 a 100 %) e IVA (0 a 100 %).</div><div class="notice warn" id="furnInvalid" hidden>Hay medidas incompletas o no válidas: comprueba unidades enteras y dimensiones positivas.</div><div class="grid">${select('furnTreatment','Tratamiento realizado',['AUTOCLAVE','INSITU GEL'],['AUTOCLAVE','INSITU GEL'].includes(d.furnTreatment)?d.furnTreatment:'AUTOCLAVE')}${textarea('furnObs','Observaciones',d.furnObs||'')}</div></div></section><section class="section"><h3>Aviso sobre mobiliario barnizado y acabados</h3><div class="inner"><div class="notice warn"><b>Importante:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</div></div></section>${(s.photos?.before||s.photos?.after)?`<section class="section"><h3>Fotos conservadas de la hoja anterior</h3><div class="inner"><div class="photos">${photoBox('photoBefore','Foto ANTES',s.photos.before)}${photoBox('photoAfter','Foto DESPUÉS',s.photos.after)}</div></div></section>`:''}<section class="section"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="furnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Conjunto de muebles">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía del conjunto <input type="file" id="furnGroupPhoto" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="furnGroupCamera" accept="image/*" capture="environment"></label><button type="button" id="furnGroupRemove" class="btn secondary" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>${recoveredAttachmentsSection(s)}<section class="section"><h3>4. Facturación Mobiliario</h3><div class="inner"><div class="notice"><b>El precio unitario, el descuento y el IVA se introducen por mueble; la factura suma todas las líneas.</b> Los m³ no afectan a la facturación.</div><div class="grid">${field('furnBudgetRef','Referencia presupuesto',d.furnBudgetRef||'')}</div></div></section></div></div>`;
+ app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Mobiliario')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Muebles y espacio necesario en autoclave</h3><div class="inner"><div id="furnItemsBody">${current.map(r=>furnRowHTML(r,s)).join('')}</div><div class="auto-measure-actions"><button type="button" class="btn secondary" id="furnAdd">+ Añadir mueble</button><small>Un apartado de medidas y una fotografía por mueble.</small></div><div class="notice"><b>Volumen total: <span id="furnTotal">0,0000</span> m³</b><div id="furnVolumeNotice"></div></div><div class="notice" style="margin-top:9px"><b>Base de los muebles (sin IVA): <span id="furnPriceTotal">0,00 €</span></b><div>Precio manual por unidad × cantidad, aplicando descuento e IVA por cada mueble. El volumen no interviene en el precio.</div></div><div class="notice warn" id="furnPriceInvalid" hidden>Comprueba los precios, descuentos (0 a 100 %) e IVA (0 a 100 %).</div><div class="notice warn" id="furnInvalid" hidden>Hay medidas incompletas o no válidas: comprueba unidades enteras y dimensiones positivas.</div><div class="grid">${select('furnTreatment','Tratamiento realizado',['AUTOCLAVE','INSITU GEL'],['AUTOCLAVE','INSITU GEL'].includes(d.furnTreatment)?d.furnTreatment:'AUTOCLAVE')}${textarea('furnObs','Observaciones',d.furnObs||'')}</div>${mhsObsFields(d)}</div></section><section class="section"><h3>Aviso sobre mobiliario barnizado y acabados</h3><div class="inner"><div class="notice warn"><b>Importante:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</div></div></section>${(s.photos?.before||s.photos?.after)?`<section class="section"><h3>Fotos conservadas de la hoja anterior</h3><div class="inner"><div class="photos">${photoBox('photoBefore','Foto ANTES',s.photos.before)}${photoBox('photoAfter','Foto DESPUÉS',s.photos.after)}</div></div></section>`:''}<section class="section"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="furnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Conjunto de muebles">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía del conjunto <input type="file" id="furnGroupPhoto" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="furnGroupCamera" accept="image/*" capture="environment"></label><button type="button" id="furnGroupRemove" class="btn secondary" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>${recoveredAttachmentsSection(s)}<section class="section"><h3>4. Facturación Mobiliario</h3><div class="inner"><div class="notice"><b>El precio unitario, el descuento y el IVA se introducen por mueble; la factura suma todas las líneas.</b> Los m³ no afectan a la facturación.</div><div class="grid">${field('furnBudgetRef','Referencia presupuesto',d.furnBudgetRef||'')}</div></div></section></div></div>`;
  bindCommon(s,collectMobiliario,{transport:true});
  $('#furnAdd').onclick=()=>{$('#furnItemsBody').insertAdjacentHTML('beforeend',furnRowHTML({id:uid()},s));furnUpdate()};
  $('#furnItemsBody').addEventListener('input',e=>{if(e.target.matches('[data-furn]'))furnUpdate()});
@@ -274,20 +300,20 @@ function renderMobiliario(s){
   const delPhoto=e.target.closest('.furn-delete-photo');
   if(delPhoto){const el=delPhoto.closest('.furn-item'),key='furn_'+el.dataset.furnId;
    if(!confirm('¿Eliminar la fotografía de este mueble?'))return;
-   s.photos=s.photos||{};delete s.photos[key];el.querySelector('.furn-photo-preview').textContent='Sin foto';
+   s.photos=s.photos||{};delete s.photos[key];if(s.photoCloud)delete s.photoCloud[key];el.querySelector('.furn-photo-preview').textContent='Sin foto';
    el.querySelectorAll('[data-furn-photo]').forEach(input=>input.value='');delPhoto.disabled=true;
    collectMobiliario(s);save();toast('Fotografía eliminada');return;
   }
   if(!e.target.closest('.furn-remove'))return;
   if(!confirm('¿Eliminar este mueble de la hoja?'))return;
-  const el=e.target.closest('.furn-item');if(s.photos)delete s.photos['furn_'+el.dataset.furnId];el.remove();furnUpdate();
+  const el=e.target.closest('.furn-item');if(s.photos)delete s.photos['furn_'+el.dataset.furnId];if(s.photoCloud)delete s.photoCloud['furn_'+el.dataset.furnId];el.remove();furnUpdate();
  });
  $('#furnItemsBody').addEventListener('change',async e=>{
   if(!e.target.matches('[data-furn-photo]'))return;
   const input=e.target,file=input.files?.[0];if(!file)return;
   const el=input.closest('.furn-item'),id=el.dataset.furnId;
   try{
-   const data=await compressImage(file);s.photos=s.photos||{};s.photos['furn_'+id]=data;
+   const data=await compressImage(file);s.photos=s.photos||{};s.photos['furn_'+id]=data;if(s.photoCloud)delete s.photoCloud['furn_'+id];
    collectMobiliario(s);save();
    if(window.MHSOffline){
     const blob=await(await fetch(data)).blob();const blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-furn-${id}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:'furn_'+id});
@@ -297,10 +323,10 @@ function renderMobiliario(s){
    toast('Fotografía del mueble guardada');
   }catch(err){alert('No se pudo guardar la fotografía: '+(err?.message||err))}
  });
- const saveGroup=async input=>{const file=input.files?.[0];if(!file)return;try{const data=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=data;collectMobiliario(s);save();$('#furnGroupPreview').innerHTML=`<img src="${data}" alt="Conjunto de muebles">`;$('#furnGroupRemove').disabled=false;toast('Foto del conjunto guardada')}catch(err){alert('No se pudo guardar la foto del conjunto: '+(err?.message||err))}};
+ const saveGroup=async input=>{const file=input.files?.[0];if(!file)return;try{const data=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=data;if(s.photoCloud)delete s.photoCloud.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').innerHTML=`<img src="${data}" alt="Conjunto de muebles">`;$('#furnGroupRemove').disabled=false;toast('Foto del conjunto guardada')}catch(err){alert('No se pudo guardar la foto del conjunto: '+(err?.message||err))}};
  $('#furnGroupPhoto').addEventListener('change',e=>saveGroup(e.target));
  $('#furnGroupCamera').addEventListener('change',e=>saveGroup(e.target));
- $('#furnGroupRemove').onclick=()=>{if(!confirm('¿Eliminar la foto del conjunto?'))return;delete s.photos.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').textContent='Sin foto del conjunto';$('#furnGroupRemove').disabled=true;$('#furnGroupPhoto').value='';$('#furnGroupCamera').value='';};
+ $('#furnGroupRemove').onclick=()=>{if(!confirm('¿Eliminar la foto del conjunto?'))return;delete s.photos.furnGroup;if(s.photoCloud)delete s.photoCloud.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').textContent='Sin foto del conjunto';$('#furnGroupRemove').disabled=true;$('#furnGroupPhoto').value='';$('#furnGroupCamera').value='';};
  if($('#photoBefore'))bindPhoto('photoBefore',s,'before');
  if($('#photoAfter'))bindPhoto('photoAfter',s,'after');
  furnUpdate();
@@ -308,6 +334,7 @@ function renderMobiliario(s){
 function collectMobiliario(s){
  commonCollect(s);const d=s.data=s.data||{};
  ['furnTreatment','furnObs','furnBudgetRef'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});
+ mhsObsCollect(d);
  d.furnItems=furnUIRows();d.furnPriceMode='unit';
  d.furnVolumeM3=autoFour(autoSum(d.furnItems.map(autoVolume).filter(Boolean)));
  // Campos históricos para certificados y albaranes; NO se usan para calcular precios.
@@ -555,7 +582,7 @@ function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentRe
  if(s.type==='mobiliario'){
   const setPhoto=async input=>{
    const file=input.files?.[0];if(!file)return;
-   try{const img=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=img;s.updatedAt=new Date().toISOString();save();
+   try{const img=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=img;if(s.photoCloud)delete s.photoCloud.furnGroup;s.updatedAt=new Date().toISOString();save();
     $('#docFurnGroupPreview').innerHTML=`<img src="${img}" alt="Foto del conjunto">`;
     $('#docFurnGroupRemove').disabled=false;toast('Fotografía del conjunto guardada');
    }catch(err){alert('No se pudo guardar la fotografía: '+(err?.message||err))}finally{input.value=''}
@@ -564,7 +591,7 @@ function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentRe
   $('#docFurnGroupCamera').onchange=e=>setPhoto(e.target);
   $('#docFurnGroupRemove').onclick=()=>{
    if(!confirm('¿Eliminar la fotografía del conjunto?'))return;
-   if(s.photos)delete s.photos.furnGroup;
+   if(s.photos)delete s.photos.furnGroup;if(s.photoCloud)delete s.photoCloud.furnGroup;
    s.updatedAt=new Date().toISOString();save();
    $('#docFurnGroupPreview').textContent='Sin foto del conjunto';
    $('#docFurnGroupRemove').disabled=true;
@@ -614,6 +641,29 @@ const localReady=(async()=>{
 })();
 window.MHSApp={
  ready:localReady,
+ // Incorporar referencias remotas sin invocar el evento de cambios ni sobrescribir fotos locales.
+ registerCloudFiles:async(updates)=>{
+  for(const update of updates||[]){
+   const item=state.services.find(x=>String(x.id)===String(update.id));if(!item)continue;
+   // No vincular una subida antigua si el usuario cambió la foto durante la petición.
+   item.photoCloud=item.photoCloud||{};
+   for(const [key,ref] of Object.entries(update.photoCloud||{})){
+    const actual=item.photos?.[key];
+    if(typeof actual==='string'&&actual.startsWith('data:')){
+     const bytes=new TextEncoder().encode(actual);
+     const hash=await crypto.subtle.digest('SHA-256',bytes);
+     const sha=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+     if(ref.sha===sha)item.photoCloud[key]=ref;
+    }
+   }
+   for(const linked of update.attachments||[]){
+    const local=(item.attachments||[]).find(x=>String(x.id)===String(linked.id));
+    if(local&&linked.remotePath){local.remotePath=linked.remotePath;local.localOnly=false;local.syncStatus='synced';}
+   }
+  }
+  if(window.MHSOffline?.saveState)await MHSOffline.saveState(state);
+  try{db.set(state)}catch(e){console.warn('localStorage secundario lleno',e)}
+ },
  getState:()=>typeof structuredClone==='function'?structuredClone(state):JSON.parse(JSON.stringify(state)),
  applyRemoteState:async(remote,{source='remote'}={})=>{
   if(!remote||!Array.isArray(remote.services))return false;
@@ -656,7 +706,7 @@ const apSafe=v=>String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>'
 const apMoney=v=>Number(v||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2});
 const ap4=v=>Number.isFinite(num(v))?fmt4(num(v)):'0,0000';
 const apClient=s=>{const cat=(state.clients||[]).find(x=>String(x.name||'').trim().toLowerCase()===String(s.client?.name||'').trim().toLowerCase())||{};const own=s.client||{};return {...cat,...Object.fromEntries(Object.entries(own).filter(([k,v])=>String(v??'').trim()!=='')),name:own.name||cat.name||''}};
-function apPreview(filename,fields,{title='',draft=false,media=[],readable=false}={}){
+function apPreview(filename,fields,{title='',draft=false,media=[],readable=false,obsAnnex=null}={}){
  const el=(x,y,value,width=110,size=7,style='')=>{
   let v=String(value??'').trim();if(!v)return '';
   const desired=readable?Math.min(10,Math.max(8.3,size+1.8)):size;
@@ -668,14 +718,16 @@ function apPreview(filename,fields,{title='',draft=false,media=[],readable=false
  const url=apSafe(new URL('approved-backgrounds/'+filename,location.href).href);
  const mediaImg=m=>{const inset=1.5;return `<img class="ap-media" alt="Fotografía del mueble" src="${m.src}" style="left:${((m.x+inset)/595.276*100).toFixed(5)}%;top:${((m.y+inset)/841.89*100).toFixed(5)}%;width:${((m.w-2*inset)/595.276*100).toFixed(5)}%;height:${((m.h-2*inset)/841.89*100).toFixed(5)}%">`};
  const content=pages.map((fs,pageIndex)=>`<main class="ap-sheet"><img class="ap-template" alt="Modelo aprobado" src="${url}">${fs.map(f=>el(...f)).join('')}${media.filter(m=>(m.page===undefined||m.page===pageIndex)&&/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(m.src||'')).map(mediaImg).join('')}${draft?'<div class="ap-watermark">BORRADOR</div>':''}</main>`).join('');
+ const annexHtml=obsAnnex?`<main class="ap-sheet ap-annex"><div class="ap-annex-content"><h1>ANEXO · OBSERVACIONES Y PRODUCTO BIOCIDA</h1><p>Hoja ${apSafe(obsAnnex.number)}</p><h2>Observaciones</h2><div class="ap-annex-obs">${apSafe(obsAnnex.observations)}</div><h2>Información del producto biocida</h2><table><tbody><tr><th>Producto</th><td>${apSafe(obsAnnex.product)}</td></tr><tr><th>N.º de registro</th><td>${apSafe(obsAnnex.registration)}</td></tr><tr><th>Propiedad biocida</th><td>${apSafe(obsAnnex.properties)}</td></tr><tr><th>Materias activas</th><td>${apSafe(obsAnnex.actives)}</td></tr><tr><th>Nanomateriales</th><td>${apSafe(obsAnnex.nano)}</td></tr><tr><th>Instrucciones de uso</th><td>${apSafe(obsAnnex.instructions)}</td></tr></tbody></table></div></main>`:'';
  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${apSafe(title)}</title><style>
  @page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,Helvetica,sans-serif}body{background:#d7dedb;padding:10px}
  .ap-sheet{width:min(210mm,100%);aspect-ratio:595.276/841.89;position:relative;margin:0 auto;background:white;box-shadow:0 4px 17px #0003;overflow:hidden}
  .ap-sheet+.ap-sheet{margin-top:12px}.ap-template{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
  .ap-field{position:absolute;color:#101610;line-height:1.12;white-space:nowrap;overflow:hidden;font-weight:400}
+ .ap-annex{height:auto;min-height:297mm;aspect-ratio:auto;overflow:visible}.ap-annex-content{padding:18mm 17mm;font-size:10pt;line-height:1.4;overflow-wrap:anywhere}.ap-annex-content h1{font-size:15pt;color:#192e43;margin:0 0 16px}.ap-annex-content h2{font-size:11pt;color:#192e43;margin:20px 0 8px}.ap-annex-obs{white-space:pre-wrap}.ap-annex table{border-collapse:collapse;width:100%;table-layout:fixed}.ap-annex th,.ap-annex td{border:1px solid #999;padding:8px;text-align:left;vertical-align:top}.ap-annex th{width:30%}
  .ap-media{position:absolute;object-fit:contain;object-position:center center;display:block;background:white;border:0}.ap-watermark{position:absolute;top:46%;left:25%;transform:rotate(-25deg);font-size:30pt;font-weight:800;color:#b22;opacity:.25}
  @media print{body{padding:0;background:white}.ap-sheet{width:210mm;height:297mm;box-shadow:none;break-after:page}.ap-sheet+.ap-sheet{margin-top:0}.ap-sheet:last-child{break-after:auto}.ap-template{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
- </style></head><body>${content}</body></html>`;
+ </style></head><body>${content}${annexHtml}</body></html>`;
  const old=document.getElementById('mhsApprovedOverlay');if(old)old.remove();
  const overlay=document.createElement('div');overlay.id='mhsApprovedOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-label','Vista previa sobre diseño aprobado');overlay.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(10,25,18,.83);display:flex;flex-direction:column;gap:8px;padding:12px';
  const bar=document.createElement('div');bar.style.cssText='display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap';
@@ -706,7 +758,7 @@ function apD(s,kind,forTransport=false){
   add(423,273,d.autoStartTime||'',55);add(452,290,d.autoEndTime||'',60);
   add(520,341,d.autoVacuumStart||'',43);add(520,356,d.autoVacuumConstant||'',43);add(529,371,d.autoVacuumSpray||'',35);add(529,386,d.autoVacuumReduction||'',35);add(529,400,d.autoDryTime||'',35);
   add(240,453,d.autoProduct||'',105);add(269,513,d.clientDeliveryNo||'',70);add(260,530,apDate(d.autoEntryDate||''),96);add(298,551,d.autoExitDeliveryNo||'',54);add(253,563,apDate(d.autoExitDate||''),86);
-  add(17,619,d.autoObs||s.notes||'',337,7);add(65,707,state.company?.directorName||'',145);add(90,730,state.company?.directorLicense||'',115);
+  add(17,619,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.autoObs||s.notes||''),337,7);add(65,707,state.company?.directorName||'',145);add(90,730,state.company?.directorLicense||'',115);
  } else if(kind==='sheet'&&type==='mobiliario'){
   add(496,57,number,70);add(474,78,date,75);add(156,161,c.name,116);add(330,161,c.taxId,93);add(488,161,c.contact,95);add(84,180,c.address,183);add(369,180,[c.postalCode,c.province].filter(Boolean).join(' / '),188);add(80,200,c.phone,164);add(320,200,c.email,240);
   const rows=apRows(s);rows.slice(0,6).forEach((row,i)=>{const y=288+i*19;add(26,y,row.concept,172);add(213,y,row.units,36);add(256,y,row.condition,50);add(311,y,row.notes,83)});
@@ -716,7 +768,7 @@ function apD(s,kind,forTransport=false){
   const treat=String(d.furnTreatment||'').trim().toLowerCase();
   if(treat==='desinsectación'||treat==='desinsectacion')add(416,345,'X',9,7);
   else if(treat==='otros')add(416,369,'X',9,7);
-  add(415,529,d.furnCondition||'',150);add(26,623,d.furnObs||s.notes||'',540);add(89,706,state.company?.directorName||'',180);
+  add(415,529,d.furnCondition||'',150);add(26,623,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.furnObs||s.notes||''),540);add(89,706,state.company?.directorName||'',180);
   // Solo en los huecos de OBSERVACIONES del modelo aprobado; no se rediseña la hoja.
   const piece=rows[0];if(piece){const m3=autoVolume(piece);const dims=[piece.length,piece.width,piece.thickness].map(x=>String(x||'').trim()).join(' × ');
    add(26,636,'Medidas (largo × ancho × grosor): '+dims+' m | Volumen: '+(m3?autoFour(m3).replace('.',','):'—')+' m³',525,8.2);
@@ -726,7 +778,7 @@ function apD(s,kind,forTransport=false){
   add(500,81,number,74);add(506,95,date,73);add(122,153,c.name,177);add(348,153,c.address,229);add(69,171,c.phone,101);add(226,171,c.email,178);add(452,171,c.contact,115);
   const rows=apRows(s);
   rows.slice(0,7).forEach((v,i)=>{const y=248+i*15.8;add(27,y,v.concept||'',112);add(148,y,v.units||'',30);add(186,y,v.length||'',43);add(234,y,v.width||'',43);add(285,y,v.thickness||'',38);add(339,y,d.autoMoisture||'',45);add(395,y,d.autoUseClass||'',55);add(456,y,v.notes||'',123,6.3)});
-  add(275,375,'Tratamiento de madera en autoclave',270);add(323,389,d.autoStartTime||'',80);add(519,389,d.autoEndTime||'',55);add(311,406,d.autoProduct||'',165);add(333,422,d.autoUseClass||'',160);add(234,473,d.autoObs||s.notes||r.notes||'',330);
+  add(275,375,'Tratamiento de madera en autoclave',270);add(323,389,d.autoStartTime||'',80);add(519,389,d.autoEndTime||'',55);add(311,406,d.autoProduct||'',165);add(333,422,d.autoUseClass||'',160);add(234,473,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.autoObs||s.notes||r.notes||''),330);
   add(118,548,t.company||r.carrier||'',180);add(106,566,t.plate||r.plate||'',135);add(348,566,t.driver||r.receiver||'',165);add(53,583,t.driverId||'',115);
  } else if(kind==='delivery'&&type==='mobiliario'){
   add(467,86,number,108);add(496,99,date,75);add(147,159,c.name,189);add(403,159,c.address,174);add(80,179,c.phone,118);add(254,179,c.email,154);add(473,179,c.contact,99);
@@ -736,7 +788,7 @@ function apD(s,kind,forTransport=false){
   add(365,408,apDate(d.furnPickupDate),175,7.2);
   add(406,423,apDate(d.furnDeliveryDate),132,7.2);
   add(335,439,d.furnTreatment,208,7.2);
-  add(264,489,d.furnObs||s.notes||r.notes||'',298,7.2);
+  add(264,489,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.furnObs||s.notes||r.notes||''),298,7.2);
   // Albarán: conjunto de muebles, sin precios; los m³ son únicamente información logística.
   const volume=autoSum(apRows(s).map(autoVolume).filter(Boolean));
   add(264,507,'Volumen de los muebles de esta página: '+autoFour(volume).replace('.',',')+' m³',295,7.1);
@@ -863,7 +915,7 @@ const apLegacyPrintService=printServiceDocument;
 printServiceDocument=function(s){
  if(!APPROVED_DOCS[s.type])return apLegacyPrintService(s);
  const r=s.data?.documentReceipt||{},kind=r.kind==='Albarán'?'delivery':'sheet';
- const fields=apDocumentPages(s,kind);if(fields)apPreview(APPROVED_DOCS[s.type][kind],fields,{title:kind==='sheet'?'Hoja de servicio aprobada':'Albarán aprobado',media:apMedia(s,kind),readable:s.type==='mobiliario'});
+ const fields=apDocumentPages(s,kind);if(fields)apPreview(APPROVED_DOCS[s.type][kind],fields,{title:kind==='sheet'?'Hoja de servicio aprobada':'Albarán aprobado',media:apMedia(s,kind),readable:s.type==='mobiliario',obsAnnex:mhsObsAnnex(s,kind)});
 };
 const apLegacyPrintTransport=printTransport;
 printTransport=function(s){
@@ -871,7 +923,7 @@ printTransport=function(s){
  const t=s.data?.transport||{};
  if(!t.receiver||!t.signDate||!t.signature){alert('El albarán necesita firma de recepción antes de imprimir.');return}
  const fields=apDocumentPages(s,'delivery',true);
- if(fields)apPreview(APPROVED_DOCS[s.type].delivery,fields,{title:'Albarán aprobado',media:apMedia(s,'delivery',true),readable:s.type==='mobiliario'});
+ if(fields)apPreview(APPROVED_DOCS[s.type].delivery,fields,{title:'Albarán aprobado',media:apMedia(s,'delivery',true),readable:s.type==='mobiliario',obsAnnex:mhsObsAnnex(s,'delivery')});
 };
 const apLegacyPrintInvoice=printInvoice;
 printInvoice=function(i){

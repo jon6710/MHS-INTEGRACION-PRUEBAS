@@ -1,4 +1,4 @@
-/* HMSARBIDE — Conexión Supabase revisada. No modifica las tablas antiguas.
+/* MHSARBIDE — Conexión Supabase revisada. No modifica las tablas antiguas.
    Registro inmutable de versiones en app_data. Ante cualquier divergencia, DETIENE la sincronización.
    No se usa en producción hasta superar las pruebas en los tres dispositivos. */
 (()=>{
@@ -6,6 +6,7 @@
 const URL='https://hargvujvvhwmvodlbarh.supabase.co';
 const KEY='sb_publishable_alaHLd7sOSjAWRzKWLjRHg_-igTTOx8'; // Clave pública del cliente original; NUNCA service_role.
 const NS='hmsarbide_sync_piloto_v1';
+const PHOTO_BUCKET='adjuntos'; // Bucket EXISTENTE en el Supabase original. Políticas a verificar sin modificarlas.
 const DB='mhs_integracion_supabase_journal_v1';
 const STATE_STORE='journal';
 const event=(name,detail={})=>window.dispatchEvent(new CustomEvent('hms-sync-status',{detail:{name,...detail}}));
@@ -73,7 +74,21 @@ async function setMany(entries){
 // Comparación estable para evitar diferencias por el orden de las claves JSON.
 function canonical(value){
  if(Array.isArray(value))return value.map(canonical);
- if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])]));
+ if(value&&typeof value==='object'){
+  const normalized={...value};
+  // Una imagen puede estar en memoria como data: para imprimir y en Supabase
+  // como mhsstorage:. Ambas representan el mismo fichero si coinciden las huellas.
+  if(normalized.photos && normalized.photoCloud){
+   normalized.photos={...normalized.photos};
+   for(const [k,ref] of Object.entries(normalized.photoCloud)){
+    if(ref?.path && normalized.photos[k])normalized.photos[k]='mhsstorage:'+ref.path;
+   }
+  }
+  if(normalized.remotePath){
+   delete normalized.blobId;delete normalized.localOnly;delete normalized.syncStatus;
+  }
+  return Object.fromEntries(Object.keys(normalized).sort().map(k=>[k,canonical(normalized[k])]));
+ }
  return value;
 }
 const sameState=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
@@ -81,6 +96,86 @@ const sameState=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b
 const uid=()=>crypto.randomUUID?crypto.randomUUID():('r'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const snapshot=()=>window.MHSApp?.getState?.();
 const isEmpty=s=>!(s?.clients?.length||s?.services?.length||s?.invoices?.length||s?.products?.length||s?.budgets?.length||Object.values(s?.company||{}).some(Boolean));
+
+// Fotos y documentos se guardan en un bucket PRIVADO. Nunca se envían a otro
+// usuario: las rutas comienzan por auth.uid(), ver políticas incluidas en README.
+const imagePrefix='mhsstorage:';
+async function digestText(text){
+ const bytes=new TextEncoder().encode(text);
+ const hash=await crypto.subtle.digest('SHA-256',bytes);
+ return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+}
+function blobFromDataUri(data){
+ const m=/^data:(image\/(?:png|jpeg|webp));base64,([\s\S]+)$/i.exec(data||'');
+ if(!m)throw Error('Formato de fotografía no compatible. Conservada en este dispositivo.');
+ const raw=atob(m[2]);const bytes=new Uint8Array(raw.length);
+ for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+ return new Blob([bytes],{type:m[1]});
+}
+function asDataUri(blob){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=()=>rej(f.error||Error('Error leyendo fotografía'));f.readAsDataURL(blob);});}
+function safePart(text){return encodeURIComponent(String(text||'sin-id')).replace(/%/g,'_').slice(0,110);}
+async function uploadToStorage(path,blob,type){
+ const {error}=await sdk().storage.from(PHOTO_BUCKET).upload(path,blob,{contentType:type||blob.type||'application/octet-stream',upsert:true,cacheControl:'3600'});
+ if(error)throw Error('No se pudo subir fotografía/adjunto a Supabase Storage ('+PHOTO_BUCKET+'): '+error.message+'. Los datos locales permanecen guardados.');
+}
+async function cloudReadyState(local){
+ const cloud=typeof structuredClone==='function'?structuredClone(local):JSON.parse(JSON.stringify(local));
+ const updates=[];
+ for(const svc of cloud.services||[]){
+  svc.photoCloud=svc.photoCloud||{};
+  for(const [key,src] of Object.entries(svc.photos||{})){
+   if(typeof src!=='string'||!src.startsWith('data:image/'))continue;
+   const sha=await digestText(src);
+   const current=svc.photoCloud[key];
+   let path;
+   if(current?.sha===sha && current.path){path=current.path;}
+   else{
+    const blob=blobFromDataUri(src);
+    const ext=blob.type==='image/png'?'png':blob.type==='image/webp'?'webp':'jpg';
+    path=`${sessionUser.id}/photos/${safePart(svc.id)}/${safePart(key)}-${sha.slice(0,24)}.${ext}`;
+    await uploadToStorage(path,blob,blob.type);
+   }
+   svc.photoCloud[key]={sha,path};
+   svc.photos[key]=imagePrefix+path;
+  }
+  for(const a of svc.attachments||[]){
+   if(!a?.blobId || a.remotePath)continue;
+   const record=await window.MHSOffline?.getBlob?.(a.blobId);
+   if(!record?.blob)throw Error('El adjunto '+(a.name||a.id)+' no está disponible en este dispositivo. No se enviará una copia incompleta.');
+   const path=`${sessionUser.id}/attachments/${safePart(svc.id)}/${safePart(a.id)}`;
+   await uploadToStorage(path,record.blob,a.type);
+   a.remotePath=path;a.localOnly=false;a.syncStatus='synced';
+   delete a.blobId;
+  }
+  if(Object.keys(svc.photoCloud).length===0)delete svc.photoCloud;
+  if(svc.photoCloud || (svc.attachments||[]).some(a=>a.remotePath))updates.push({id:svc.id,photoCloud:svc.photoCloud||{},attachments:svc.attachments||[]});
+ }
+ return {cloud,updates};
+}
+async function restoreRemoteFiles(cloud){
+ const remote=typeof structuredClone==='function'?structuredClone(cloud):JSON.parse(JSON.stringify(cloud));
+ for(const svc of remote.services||[]){
+  for(const [key,src] of Object.entries(svc.photos||{})){
+   if(typeof src!=='string'||!src.startsWith(imagePrefix))continue;
+   const path=src.slice(imagePrefix.length);
+   if(!path.startsWith(sessionUser.id+'/'))throw Error('Una fotografía de otro usuario no se puede descargar.');
+   const {data,error}=await sdk().storage.from(PHOTO_BUCKET).download(path);
+   if(error||!data)throw Error('No se pudo recuperar la fotografía '+key+' de Supabase Storage: '+(error?.message||'sin contenido'));
+   svc.photos[key]=await asDataUri(data);
+  }
+  for(const a of svc.attachments||[]){
+   if(!a?.remotePath)continue;
+   if(!a.remotePath.startsWith(sessionUser.id+'/'))throw Error('Un adjunto pertenece a otra cuenta.');
+   if(a.blobId && await window.MHSOffline?.getBlob?.(a.blobId))continue;
+   const {data,error}=await sdk().storage.from(PHOTO_BUCKET).download(a.remotePath);
+   if(error||!data)throw Error('No se pudo recuperar adjunto '+(a.name||a.id)+': '+(error?.message||'sin contenido'));
+   if(!window.MHSOffline?.storeBlob)throw Error('IndexedDB de adjuntos no disponible.');
+   a.blobId=await window.MHSOffline.storeBlob(data,{name:a.name||'Adjunto',type:a.type||data.type,serviceId:svc.id});
+  }
+ }
+ return remote;
+}
+
 let captureJob=Promise.resolve();
 function onLocalSave(s){
  if(suppressed)return;
@@ -276,7 +371,8 @@ async function publish(){
    await set('draft',toSend);
   }
   if(!navigator.onLine)throw Error('Sin Internet; se conserva la copia pendiente.');
-  const payload={version:toSend.id,parent:head,state:toSend.state,createdAt:new Date().toISOString()};
+  const prepared=await cloudReadyState(toSend.state);
+  const payload={version:toSend.id,parent:head,state:prepared.cloud,createdAt:new Date().toISOString()};
   // Sin un bucket verificado no publicar referencias a blobs locales que otros equipos no pueden abrir.
   const missingAttachments=[];
   for(const sheet of payload.state.services||[]){
@@ -309,6 +405,7 @@ async function publish(){
     ' NO REPITAS el envío. Conserva JSON y comprueba la tabla de Supabase.');
   }
   if(check.ok){
+   await window.MHSApp?.registerCloudFiles?.(prepared.updates);
    await set('head',toSend.id);
    const latest=await get('draft');if(latest?.id===toSend.id)await set('draft',null);
    await set('unverifiedPublish',null);
@@ -475,7 +572,7 @@ async function fetchLegacy(){
 }
 function mergeLegacyIntoCurrent(legacy){
  const original=snapshot();
- if(!original)throw Error('No se puede leer el estado de HMSARBIDE.');
+ if(!original)throw Error('No se puede leer el estado de MHSARBIDE.');
  const merged={...original};let additions=0;
  for(const kind of ['clients','products','invoices','budgets','services']){
   const current=Array.isArray(original[kind])?original[kind]:[];
@@ -532,7 +629,8 @@ async function adoptMerged(remote){
  // La versión remota puede coexistir con nuevos registros locales que aún no se han enviado.
  suppressed=true;
  try{
-  const ok=await window.MHSApp?.applyRemoteState?.(remote.state,{source:'supabase'});
+  const expanded=await restoreRemoteFiles(remote.state);
+  const ok=await window.MHSApp?.applyRemoteState?.(expanded,{source:'supabase'});
   if(ok!==true)throw Error('No se pudieron guardar los datos recibidos de Supabase.');
   await set('head',remote.version);
  }finally{suppressed=false;}
@@ -603,8 +701,8 @@ function initUI(){
  indicator.textContent='● Conectando…';indicator.title='Estado de conexión';
  document.querySelector('.topactions')?.prepend(indicator);
  const panel=document.createElement('section');panel.id='hms-auth';panel.setAttribute('role','dialog');
- panel.setAttribute('aria-label','Acceso a HMSARBIDE');panel.className='hms-auth-panel';
- panel.innerHTML=`<div class="hms-login-card"><h1>HMSARBIDE</h1><p>Accede para trabajar con tus datos de Supabase.</p>
+ panel.setAttribute('aria-label','Acceso a MHSARBIDE');panel.className='hms-auth-panel';
+ panel.innerHTML=`<div class="hms-login-card"><h1>MHSARBIDE</h1><p>Accede para trabajar con tus datos de Supabase.</p>
  <label>Correo electrónico<input id="hss-email" type="email" autocomplete="username" inputmode="email"></label>
  <label>Contraseña<input id="hss-password" type="password" autocomplete="current-password"></label>
  <button id="hss-login" type="button" class="btn">Iniciar sesión</button>
@@ -625,7 +723,7 @@ function initUI(){
  indicator.onclick=()=>{
   if(lastError)alert('Sincronización pendiente: '+lastError+'\nLos datos locales se conservan.');
   else if(!sessionUser)showLogin();
-  else if(confirm('¿Quieres cerrar tu sesión de HMSARBIDE en este dispositivo?')){
+  else if(confirm('¿Quieres cerrar tu sesión de MHSARBIDE en este dispositivo?')){
    void logout().then(()=>showLogin('Sesión cerrada.')).catch(e=>showStatus(e.message,true));
   }
  };

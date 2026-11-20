@@ -1,0 +1,11 @@
+MHS-INTEGRACION-PRUEBAS — OBSERVACIONES + FOTOGRAFÍAS EN UN SOLO PAQUETE
+
+Base: MHS-INTEGRACION-PRUEBAS con acceso a Supabase y reapertura corregida.
+Observaciones: incorporadas desde MHS-OBSERVACIONES-PRUEBAS para Mobiliario y Autoclave; el texto técnico del biocida requiere revisión profesional.
+Fotografías y adjuntos: usan el bucket EXISTENTE «adjuntos» del proyecto Supabase «Mis Hojas de Servicio App». No se crea otro bucket.
+En línea, el sistema trata de subir las nuevas fotos a Storage al publicar cambios; otros dispositivos intentan descargarlas al recibir la versión. Los archivos solo locales no se eliminan si la subida falla.
+
+IMPORTANTE: las políticas actuales de «adjuntos» deben permitir al usuario autenticado subir, leer y, cuando proceda, actualizar en su carpeta UID. Se han visto seis políticas en la interfaz, pero NO se ha verificado su contenido. No se han modificado políticas, tablas ni archivos remotos.
+No se puede confirmar la sincronización real de fotos sin efectuar una prueba con el Supabase original.
+La impresión de PDF con fotos y anexo de Observaciones requiere una prueba en navegador antes de utilizar documentos para clientes.
+No subir JSON de datos de clientes ni credenciales privadas a GitHub.
