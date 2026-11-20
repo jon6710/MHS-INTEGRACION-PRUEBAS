@@ -1,0 +1,5 @@
+MHS-INTEGRACION-PRUEBAS: actualización sobre el paquete Observaciones + Fotos + bucket adjuntos.
+Se corrige bloqueo por publicación pendiente: verifica por ID la fila, propiedad, contenido, padre y rama única antes de marcar el envío confirmado.
+No reenvía publicaciones pendientes; no borra filas.
+La segunda lectura del historial ahora se limita al tipo de sincronización, sin barrer todos los tipos de app_data.
+Sin comprobar con Supabase real. Si hay errores, se preservan los datos y se informa.

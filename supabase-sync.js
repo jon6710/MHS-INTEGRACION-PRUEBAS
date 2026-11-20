@@ -279,8 +279,10 @@ async function versions(){
  if(first.error)throw Error('Fallo al leer versiones del piloto: '+first.error.message);
  const a=first.data||[];
  if(a.length>maxVersions)throw Error('Historial de versiones demasiado extenso. No sincronizar hasta optimizar la base de datos.');
+ // Segunda comprobación limitada al mismo tipo de versión. La consulta anterior
+ // barría también clientes y productos antiguos, pudiendo agotar el tiempo de SQL.
  const second=await sdk().from('app_data')
-  .select('record_id,data_type,user_id').eq('user_id',sessionUser.id).limit(maxVersions+1);
+  .select('record_id,data_type,user_id').eq('user_id',sessionUser.id).eq('data_type',NS).limit(maxVersions+1);
  if(second.error)throw Error('Fallo al cotejar las versiones: '+second.error.message);
  const all=second.data||[];
  if(all.length>maxVersions)throw Error('Demasiados registros para verificar el historial. Sincronización detenida sin cambios.');
@@ -641,6 +643,41 @@ async function adoptMerged(remote){
   await set('draft',null);
  }
 }
+// Reanudar SIN DUPLICAR tras una interrupción entre la escritura y la
+// confirmación. La prueba directa valida el ID, propietario, contenido y padre.
+// El control del historial comprueba que NO haya ramas simultáneas.
+// Si falla cualquier consulta, se conserva el bloqueo y la copia local.
+async function reconcileUnverified(){
+ const receipt=await get('unverifiedPublish');
+ if(!receipt)return false;
+ if(!sessionUser?.id)throw Error('Es necesario iniciar sesión para verificar el envío pendiente.');
+ if(!navigator.onLine)throw Error('Sin conexión: se conserva la publicación pendiente.');
+ const {data,error}=await sdk().from('app_data')
+  .select('record_id,data,data_type,user_id')
+  .eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',receipt.id).maybeSingle();
+ if(error||!data)throw Error('No se puede confirmar todavía la publicación pendiente: '+(error?.message||'registro ausente')+'. No se reenvía.');
+ const decoded=decodeVersion(data);
+ if(decoded.error||decoded.item.version!==receipt.id||
+   (decoded.item.parent||null)!==(receipt.parent||null))
+  throw Error('La publicación pendiente no coincide con el registro remoto. Sincronización detenida, sin sobrescribir.');
+ const list=await versions();
+ const ends=heads(list);
+ if(ends.length!==1||ends[0].version!==receipt.id)
+  throw Error('La publicación pendiente existe, pero no es la única versión final de la nube. No se reenvía.');
+ const draft=await get('draft');
+ const currentHead=await get('head');
+ if(currentHead && currentHead!==receipt.parent && currentHead!==receipt.id)
+  throw Error('El historial local no corresponde a la publicación pendiente. No se altera.');
+ let nextDraft=draft;
+ if(draft?.id===receipt.id)nextDraft=null;
+ else if(draft && draft.base===receipt.parent)
+  nextDraft={...draft,base:receipt.id}; // Cambios posteriores siguen pendientes.
+ else if(draft && draft.base!==receipt.id)
+  throw Error('Hay cambios locales con una base incompatible. No se sobrescribirán.');
+ await setMany([['head',receipt.id],['draft',nextDraft],['unverifiedPublish',null]]);
+ event('verificado',{message:'Publicación anterior recuperada y verificada automáticamente.'});
+ return true;
+}
 async function automaticSync(){
  if(!auto||autoBusy||working||recoveryGranted||!navigator.onLine)return;
  autoBusy=true;
@@ -648,9 +685,11 @@ async function automaticSync(){
   await window.MHSApp?.ready;
   await captureJob;
   if(!sessionUser){if(!await who()){showLogin();return;}}
+  // Una interrupción tras la escritura no requiere repetir el envío.
+  // Se verifica primero el registro conocido y se recupera su confirmación.
+  if(await get('unverifiedPublish'))await reconcileUnverified();
   const all=await versions(),ends=heads(all);
   if(ends.length>1)throw Error('Hay versiones simultáneas en Supabase. Se han detenido los envíos para evitar pérdidas.');
-  if(await get('unverifiedPublish'))throw Error('Una publicación anterior necesita verificación. No se volverá a enviar automáticamente.');
   const remote=ends[0]||null;
   const known=await get('head');
   let pending=await get('draft');
