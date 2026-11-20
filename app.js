@@ -1,6 +1,6 @@
 (()=>{
 'use strict';
-const APP='mhs_integracion_aut_mob_pruebas_v1';
+const APP='mhs_integracion_supabase_limpia_v1';
 const app=document.getElementById('app');
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -49,10 +49,11 @@ function syncPayload(){
  return clone;
 }
 function save(){
+ window.HMSSupabasePilot?.onLocalSave?.(state);
  try{db.set(state)}catch(e){console.warn('localStorage lleno; se mantiene copia IndexedDB',e);toast('Guardado local alternativo activado')}
  if(window.MHSOffline){
   MHSOffline.saveState(state).catch(()=>{});
-  MHSOffline.enqueue('state_snapshot',syncPayload(),{dedupeKey:'state-main'}).catch(()=>{});
+  /* Sin cola Cloudflare: Supabase gestiona los cambios. */
  }
 }
 function getCurrent(){return state.services.find(x=>x.id===currentId)}
@@ -92,7 +93,7 @@ function bindCommon(s,collector,opts={}){
  if($('#billingBtn'))$('#billingBtn').onclick=()=>{collector(s);save();openBilling(s)};
  if($('#transportBtn'))$('#transportBtn').onclick=()=>{collector(s);save();openTransport(s)};
  const att=$('#serviceAttachment');
- if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();if(window.MHSOffline)await MHSOffline.enqueue('attachment',{serviceId:s.id,attachmentId:a.id,name:a.name,type:a.type,size:a.size},{blobId});toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
+ if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();/* El adjunto permanece local hasta habilitar Supabase Storage. */toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
  bindPhoto('photoBefore',s,'before');bindPhoto('photoAfter',s,'after');
  const cn=$('#clientName');if(cn)cn.addEventListener('change',()=>{const c=(state.clients||[]).find(x=>String(x.name||'').toLowerCase()===cn.value.trim().toLowerCase());if(c){$('#clientContact').value=c.contact||'';$('#clientPhone').value=c.phone||'';$('#clientAddress').value=c.address||'';$('#clientEmail').value=c.email||'';}});
  bindRecoveredAttachments(s);
@@ -102,7 +103,7 @@ function photoSection(s){return `<section class="section"><h3>Fotos antes y desp
 function photoBox(id,title,src){return `<div class="photo-box"><h4>${title}</h4><div class="photo-preview" id="${id}Preview">${src?`<img src="${src}" alt="${title}">`:'Sin foto'}</div><input id="${id}" type="file" accept="image/*"></div>`}
 function bindPhoto(id,s,key){
  const inp=$('#'+id);if(!inp)return;
- inp.onchange=async()=>{const f=inp.files?.[0];if(!f)return;try{const data=await compressImage(f);s.photos=s.photos||{};s.photos[key]=data;s.updatedAt=new Date().toISOString();let blobId='';if(window.MHSOffline){const blob=await (await fetch(data)).blob();blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-${key}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:key})}save();if(window.MHSOffline)await MHSOffline.enqueue('photo',{serviceId:s.id,key,name:`${s.id}-${key}.jpg`,type:'image/jpeg'},{dedupeKey:`photo-${s.id}-${key}`,blobId});$('#'+id+'Preview').innerHTML=`<img src="${data}" alt="Foto ${key}">`;toast(navigator.onLine?'Foto guardada · pendiente de sincronizar':'Foto guardada sin conexión')}catch(e){alert('No se pudo procesar la foto.')}};
+ inp.onchange=async()=>{const f=inp.files?.[0];if(!f)return;try{const data=await compressImage(f);s.photos=s.photos||{};s.photos[key]=data;s.updatedAt=new Date().toISOString();let blobId='';if(window.MHSOffline){const blob=await (await fetch(data)).blob();blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-${key}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:key})}save();/* La fotografía se conserva en IndexedDB y en el estado hasta completar Storage. */$('#'+id+'Preview').innerHTML=`<img src="${data}" alt="Foto ${key}">`;toast(navigator.onLine?'Foto guardada · pendiente de sincronizar':'Foto guardada sin conexión')}catch(e){alert('No se pudo procesar la foto.')}};
 }
 function compressImage(file){return new Promise((res,rej)=>{const r=new FileReader();r.onerror=rej;r.onload=()=>{const img=new Image();img.onerror=rej;img.onload=()=>{const max=1280;let w=img.width,h=img.height;if(Math.max(w,h)>max){const k=max/Math.max(w,h);w=Math.round(w*k);h=Math.round(h*k)}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',.76))};img.src=r.result};r.readAsDataURL(file)})}
 
@@ -357,7 +358,11 @@ function bindServiceRows(){
 function deleteService(id){const svc=state.services.find(x=>x.id===id);if(!svc)return;if(!confirm(`¿Eliminar la hoja ${svc.number||'(sin número)'} de ${svc.client?.name||'este cliente'}?`))return;if(!confirm('Esta acción eliminará la hoja de esta versión del piloto. ¿Continuar?'))return;state.services=state.services.filter(x=>x.id!==id);save();toast('Hoja eliminada');renderDashboard()}
 function renderClients(){const a=(state.clients||[]).slice().sort((x,y)=>String(x.name||'').localeCompare(String(y.name||''),'es'));app.innerHTML=`<section class="hero"><div><span class="eyebrow">CATÁLOGO</span><h1>Clientes</h1><p>Clientes recuperados y creados en el piloto.</p></div></section><section class="list-card"><div class="list-head"><h2>Clientes</h2><span class="tag">${a.length}</span></div><div class="service-list">${a.length?a.map(c=>`<div class="service-row"><div><b>${esc(c.name||'Sin nombre')}</b><br><small>${esc(c.address||'')}</small></div><div><small>${esc(c.contact||'')}</small><br>${esc(c.phone||'')}</div><div class="hide-mobile"><small>${esc(c.email||'')}</small></div><div></div><button class="btn red" data-delete-client="${c.id}">Eliminar</button></div>`).join(''):'<div class="empty">No hay clientes.</div>'}</div></section>`;app.querySelectorAll('[data-delete-client]').forEach(b=>b.onclick=()=>{const c=state.clients.find(x=>x.id===b.dataset.deleteClient);if(!c||!confirm(`¿Eliminar el cliente “${c.name}”?`))return;state.clients=state.clients.filter(x=>x.id!==c.id);save();renderClients()})}
 function renderProducts(){const a=(state.products||[]).slice().sort((x,y)=>String(x.name||'').localeCompare(String(y.name||''),'es'));app.innerHTML=`<section class="hero"><div><span class="eyebrow">CATÁLOGO</span><h1>Productos</h1><p>Productos recuperados de la aplicación anterior.</p></div></section><section class="list-card"><div class="list-head"><h2>Productos</h2><span class="tag">${a.length}</span></div><div class="service-list">${a.length?a.map(x=>`<div class="service-row"><div><b>${esc(x.name||'Sin nombre')}</b><br><small>${esc(x.maker||'')}</small></div><div><small>Registro: ${esc(x.reg||'—')}</small></div><div class="hide-mobile"><small>Cad.: ${esc(x.expiry||'—')}</small></div><div></div><button class="btn red" data-delete-product="${x.id}">Eliminar</button></div>`).join(''):'<div class="empty">No hay productos.</div>'}</div></section>`;app.querySelectorAll('[data-delete-product]').forEach(b=>b.onclick=()=>{const x=state.products.find(p=>p.id===b.dataset.deleteProduct);if(!x||!confirm(`¿Eliminar el producto “${x.name}”?`))return;state.products=state.products.filter(p=>p.id!==x.id);save();renderProducts()})}
-function exitApp(){try{save()}catch{};if(confirm('Los datos locales están guardados. ¿Salir de la aplicación?')){window.close();setTimeout(()=>{app.innerHTML='<section class="hero"><div><h1>Aplicación preparada para cerrar</h1><p>Puedes cerrar esta ventana con ⌘ + Q en Mac, o con el gesto/botón habitual del dispositivo.</p></div></section>'},250)}}
+async function exitApp(){
+ if(!confirm('¿Cerrar tu sesión de HMSARBIDE?'))return;
+ try{await window.HMSSupabasePilot?.logout?.();window.location.reload();}
+ catch(e){alert('No se pudo cerrar la sesión: '+(e?.message||e));}
+}
 function recoveredAttachmentsSection(s){const a=(s.attachments||[]).filter(x=>x.blobId||x.legacyId);if(!a.length)return '';return `<section class="section"><h3>Documentos y fotos recuperados</h3><div class="inner"><div class="feature-list">${a.map(x=>`<div class="recovered-file"><span>📎 <b>${esc(x.name||'Adjunto')}</b> <small>${x.migrated?'· recuperado':''}</small></span><button type="button" class="btn secondary" data-open-attachment="${x.id}">Ver</button></div>`).join('')}</div></div></section>`}
 function bindRecoveredAttachments(s){app.querySelectorAll('[data-open-attachment]').forEach(b=>b.onclick=async()=>{const a=(s.attachments||[]).find(x=>x.id===b.dataset.openAttachment);if(!a||!window.MHSOffline)return;const rec=await MHSOffline.getBlob(a.blobId);if(!rec?.blob){alert('El archivo no está disponible localmente en este dispositivo.');return}const u=URL.createObjectURL(rec.blob);window.open(u,'_blank');setTimeout(()=>URL.revokeObjectURL(u),60000)})}
 function legacyJSON(key,def){try{const raw=localStorage.getItem(key);return raw===null?def:(JSON.parse(raw)??def)}catch{return def}}
@@ -513,7 +518,7 @@ bindCommon=function(s,collector,opts={}){
  if($('#certificateBtn'))$('#certificateBtn').onclick=()=>{collector(s);save();printCertificate(s)};
  if($('#billingBtn'))$('#billingBtn').onclick=()=>{collector(s);save();openBilling(s)};
  const att=$('#serviceAttachment');
- if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();if(window.MHSOffline)await MHSOffline.enqueue('attachment',{serviceId:s.id,attachmentId:a.id,name:a.name,type:a.type,size:a.size},{blobId});toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
+ if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();/* El adjunto permanece local hasta habilitar Supabase Storage. */toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
  bindPhoto('photoBefore',s,'before');bindPhoto('photoAfter',s,'after');
  const cn=$('#clientName');if(cn)cn.addEventListener('change',()=>{const c=(state.clients||[]).find(x=>String(x.name||'').toLowerCase()===cn.value.trim().toLowerCase());if(c){$('#clientContact').value=c.contact||'';$('#clientPhone').value=c.phone||'';$('#clientAddress').value=c.address||'';$('#clientEmail').value=c.email||'';}});
  bindRecoveredAttachments(s);
@@ -591,16 +596,47 @@ printDoc=function(title,body){const c=state.company||{},w=window.open('','_blank
 if(window.MHSOffline){
  MHSOffline.loadState().then(saved=>{if(saved&&Array.isArray(saved.services)){const localStamp=Math.max(0,...(state.services||[]).map(x=>Date.parse(x.updatedAt)||0));const idbStamp=Math.max(0,...saved.services.map(x=>Date.parse(x.updatedAt)||0));if(idbStamp>localStamp){state=saved;try{db.set(state)}catch{};renderDashboard()}}}).catch(()=>{});
 }
+// Completar la lectura durable ANTES de solicitar cualquier descarga de Supabase.
+// Si hay divergencia entre localStorage e IndexedDB, priorizar IndexedDB (persistencia principal).
+const localReady=(async()=>{
+ // Solicitar almacenamiento persistente cuando el navegador lo admita.
+ // No incrementa artificialmente la cuota ni impide iniciar sesión si es denegado.
+ if(navigator.storage?.persist){
+  try{await navigator.storage.persist()}catch(e){console.warn('Persistencia opcional no concedida',e)}
+ }
+ if(!window.MHSOffline?.loadState)return;
+ const saved=await MHSOffline.loadState();
+ if(saved&&Array.isArray(saved.services)){
+  state=saved;
+  try{db.set(state)}catch(e){console.warn('localStorage sin cuota; IndexedDB sigue intacto',e)}
+  renderDashboard();
+ }
+})();
 window.MHSApp={
- getState:()=>JSON.parse(JSON.stringify(state)),
+ ready:localReady,
+ getState:()=>typeof structuredClone==='function'?structuredClone(state):JSON.parse(JSON.stringify(state)),
  applyRemoteState:async(remote,{source='remote'}={})=>{
   if(!remote||!Array.isArray(remote.services))return false;
-  state=remote;
-  try{db.set(state)}catch(e){console.warn('No se pudo actualizar localStorage',e)}
-  if(window.MHSOffline)await MHSOffline.saveState(state).catch(()=>{});
-  renderDashboard();
-  if(source==='cloudflare')toast('Datos actualizados desde Cloudflare');
-  return true;
+  const combined={...state};
+  for(const kind of ['services','clients','products','invoices','budgets']){
+   const byId=new Map((Array.isArray(state[kind])?state[kind]:[]).filter(x=>x?.id).map(x=>[String(x.id),x]));
+   for(const item of Array.isArray(remote[kind])?remote[kind]:[]){
+    if(!item||!item.id)continue;
+    const id=String(item.id),old=byId.get(id);
+    if(!old||(Date.parse(item.updatedAt||'')||0)>(Date.parse(old.updatedAt||'')||0))byId.set(id,item);
+   }
+   combined[kind]=[...byId.values()];
+  }
+  const lc=state.company||{},rc=remote.company||{};
+  combined.company={...rc,...Object.fromEntries(Object.entries(lc).filter(([,v])=>v!==null&&v!==undefined&&v!==''))};
+  combined.numbering={...(remote.numbering||{}),...(state.numbering||{}),serviceNext:Math.max(26001,Number(state.numbering?.serviceNext)||0,Number(remote.numbering?.serviceNext)||0)};
+  // No falla por limites del localStorage: persistir primero la copia integra en IndexedDB.
+  // No actualizar la memoria si la persistencia principal falla.
+  if(!window.MHSOffline?.saveState)throw Error('El almacenamiento duradero IndexedDB no esta disponible.');
+  await MHSOffline.saveState(combined);
+  try{db.set(combined)}catch(e){console.warn('localStorage secundario lleno',e)}
+  state=combined;
+  renderDashboard();return true;
  }
 };
 window.dispatchEvent(new CustomEvent('mhs-app-ready'));

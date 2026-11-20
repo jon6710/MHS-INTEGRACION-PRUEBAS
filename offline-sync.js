@@ -1,6 +1,6 @@
 (()=>{
 'use strict';
-const DB_NAME='mhs_offline_integracion_aut_mob_v1';
+const DB_NAME='mhs_offline_integracion_supabase_v1';
 const DB_VERSION=2;
 const Q='queue', B='blobs', S='state';
 const CFG_KEY='mhs_cloudflare_integracion_aut_mob_v1_config';
@@ -48,7 +48,15 @@ async function storeBlob(blob,meta={}){
   return id;
 }
 async function getBlob(id){if(!id)return null;const s=await tx(B);return req(s.get(id));}
-async function saveState(value){const s=await tx(S,'readwrite');await req(s.put({id:'main',value,updatedAt:new Date().toISOString()}));}
+async function saveState(value){
+ const db=await openDB();
+ return new Promise((resolve,reject)=>{
+  const t=db.transaction(S,'readwrite');
+  t.objectStore(S).put({id:'main',value,updatedAt:new Date().toISOString()});
+  t.oncomplete=()=>resolve(true); t.onerror=()=>reject(t.error||Error('Error al guardar IndexedDB'));
+  t.onabort=()=>reject(t.error||Error('Se canceló el guardado IndexedDB'));
+ });
+}
 async function loadState(){const s=await tx(S);const rec=await req(s.get('main'));return rec?.value||null;}
 async function deleteBlob(id){if(!id)return;const s=await tx(B,'readwrite');return req(s.delete(id));}
 async function setStatus(id,status,lastError=''){const s=await tx(Q,'readwrite');const item=await req(s.get(id));if(!item)return;item.status=status;item.lastError=lastError;item.updatedAt=new Date().toISOString();if(status==='pending')item.tries=(item.tries||0)+1;await req(s.put(item));}
@@ -62,7 +70,7 @@ function configure({endpoint='',token=''}={}){
   if(endpoint&&!/^https:\/\//i.test(endpoint))throw new Error('La URL debe empezar por https://');
   localStorage.setItem(CFG_KEY,JSON.stringify({endpoint,token}));
   notify();
-  if(navigator.onLine&&endpoint&&token)setTimeout(syncNow,100);
+  // Sin sincronización Cloudflare en este paquete.
 }
 function clearConfig(){localStorage.removeItem(CFG_KEY);notify();}
 function endpoint(){return (getConfig().endpoint||'').trim();}
@@ -109,6 +117,7 @@ async function pullRemote(){
   return {updated:true,reloadRecommended:true};
 }
 async function syncNow(){
+  return {synced:0,pending:0,reason:'Supabase es el servidor de esta aplicación'};
   if(syncing||!navigator.onLine)return {synced:0,pending:await pendingCount(),reason:!navigator.onLine?'offline':'busy'};
   const ep=endpoint();
   if(!ep||!token()){notify();return {synced:0,pending:await pendingCount(),reason:'no-endpoint'};}

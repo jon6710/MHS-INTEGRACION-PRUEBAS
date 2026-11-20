@@ -1,0 +1,14 @@
+HMSARBIDE — Integración sobre MHS-INTEGRACION-PRUEBAS (20/11/2026)
+
+ESTADO: EVALUACIÓN, NO PRODUCCIÓN CERTIFICADA.
+El ZIP base original se conserva sin cambios fuera de esta carpeta.
+
+Cambios: inicio de sesión Supabase; botón Salir real; consulta y recuperación del historial anterior; integración de app_data/service_sheets; IndexedDB priorizado para escritura; se retira la configuración de Cloudflare y los avisos de piloto.
+
+RESTRICCIONES VERIFICABLES:
+1. No se ha ejecutado una prueba con la sesión real de Supabase ni con otro dispositivo.
+2. Los archivos en IndexedDB local no se trasladan a Supabase Storage. No afirmar que los adjuntos se sincronizan.
+3. Si falla la interpretación de alguna hoja antigua, la sincronización debe detenerse para revisión.
+4. Las claves incluidas en el cliente son PUBLICABLES, nunca service_role.
+5. La primera carga puede ser lenta si hay muchas versiones grandes.
+6. NO sustituir la versión funcionando sin conservar una copia y comprobar la prueba de inicio/recuperación.
