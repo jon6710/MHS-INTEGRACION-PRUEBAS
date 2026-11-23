@@ -1,4 +1,4 @@
-const CACHE='mhs-v54-supabase-20261123b';
+const CACHE='mhs-v54-supabase-revision-20261123c';
 const ASSETS=[
   './','./index.html','./styles.css','./app.js','./offline-sync.js','./manifest.json',
   './supabase-sync.js','./piloto-documentos.js','./icons/icon-180.png','./icons/icon-192.png','./icons/icon-512.png'

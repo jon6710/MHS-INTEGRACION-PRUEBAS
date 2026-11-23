@@ -53,7 +53,7 @@ function save(){
  try{db.set(state)}catch(e){console.warn('localStorage lleno; se mantiene copia IndexedDB',e);toast('Guardado local alternativo activado')}
  if(window.MHSOffline){
   MHSOffline.saveState(state).catch(()=>{});
-  if(!window.HMSSupabasePilot)MHSOffline.enqueue('state_snapshot',syncPayload(),{dedupeKey:'state-main'}).catch(()=>{});
+  /* La sincronización remota se gestiona desde Supabase; no enviar a Cloudflare. */
  }
 }
 function getCurrent(){return state.services.find(x=>x.id===currentId)}
@@ -396,6 +396,15 @@ window.MHSApp={
     if(item?.id==null){combined.push(item);continue;}
     const found=ids.get(String(item.id));
     if(!found){combined.push(item);continue;}
+    // A newer local record may not yet be in Supabase; never overwrite it silently.
+    const localTime=Date.parse(item.updatedAt||'')||0;
+    const remoteTime=Date.parse(found.updatedAt||'')||0;
+    if(localTime>remoteTime){
+     const index=combined.indexOf(found);
+     if(index>=0)combined[index]=item;
+     ids.set(String(item.id),item);
+     continue;
+    }
     // Preserve local photographs and attachments that the remote copy omitted.
     if(key==='services'){
      const i=combined.indexOf(found);

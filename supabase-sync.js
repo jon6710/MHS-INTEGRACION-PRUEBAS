@@ -240,7 +240,7 @@ async function logout(){if(client)await client.auth.signOut();sessionUser=null;a
 // Lectura verificable: nunca ocultar filas por un filtro silencioso.
 // Incluye una consulta puntual por record_id cuando el dispositivo ya reconoció un envío.
 function decodeVersion(row){
- let raw=row.data;
+ let raw=row.data ?? row.data_json;
  if(typeof raw==='string'){
   try{raw=JSON.parse(raw)}catch{return {error:'JSON no válido en data'}}
  }
@@ -293,7 +293,7 @@ async function versions(){
  // Una consulta por versión; NO introducir concurrencia que recargue PostgreSQL.
  for(const id of ai){
   const {data:row,error}=await sdk().from('app_data')
-   .select('record_id,data,created_at,data_type,user_id')
+   .select('*')
    .eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',id).maybeSingle();
   if(error)throw Error('No se pudo leer la versión '+id+': '+error.message);
   if(!row)throw Error('La versión '+id+' desapareció entre consultas. No se publicará nada.');
@@ -341,6 +341,14 @@ async function inspect(){
  const result={status,count:list.length,heads:h.length,remote:h.length===1?h[0]:null,draft:!!draft,localEmpty:isEmpty(local),localHead:head};
  event('inspeccion',{status});return result;
 }
+async function remotePayloadColumn(){
+  const a=await sdk().from('app_data').select('data').limit(0);
+  if(!a.error)return 'data';
+  const b=await sdk().from('app_data').select('data_json').limit(0);
+  if(!b.error)return 'data_json';
+  throw Error('La tabla app_data no ofrece data ni data_json para guardar. No se publicará nada.');
+}
+
 async function publish(){
  if(working)throw Error('Ya hay otra sincronización en curso.');
  working=true;
@@ -374,10 +382,10 @@ async function publish(){
   if(missingAttachments.length)throw Error('Hay '+missingAttachments.length+' archivos solo locales. Sin Supabase Storage comprobado no se publicara una copia incompleta.');
   // Sin límite artificial de 3,5 MB: el servidor valida el tamaño real de la petición.
   // IndexedDB conserva la copia local incluso si Supabase rechaza una petición grande.
-  const {error}=await sdk().from('app_data').insert({user_id:sessionUser.id,data_type:NS,record_id:toSend.id,data:payload});
+  const {error}=await sdk().from('app_data').insert({user_id:sessionUser.id,data_type:NS,record_id:toSend.id,[await remotePayloadColumn()]:payload});
   if(error)throw error;
   // Solo reconocer el envío tras comprobar contenido y estructura de la fila recuperada.
-  const {data:verify,error:verifyError}=await sdk().from('app_data').select('record_id,data').eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',toSend.id).maybeSingle();
+  const {data:verify,error:verifyError}=await sdk().from('app_data').select('*').eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',toSend.id).maybeSingle();
   if(verifyError||!verify)throw Error('No se ha podido confirmar la escritura. Conservar copia local; no repetir a ciegas.');
   const checked=decodeVersion(verify);
   if(checked.error||checked.item.version!==toSend.id)throw Error('La copia se recibió, pero su lectura no coincide: '+(checked.error||'ID diferente')+'. No repetir el envío.');
@@ -532,11 +540,11 @@ async function fetchLegacy(){
  const result={services:[],clients:[],products:[],invoices:[],budgets:[],company:{}};
  // Consultar TODAS las páginas: no interpretar errores o RLS como «cero registros».
  const old=await fetchPaged(()=>sdk().from('app_data')
-  .select('record_id,data_type,data,created_at,user_id').eq('user_id',sessionUser.id).neq('data_type',NS),'app_data antigua');
+  .select('*').eq('user_id',sessionUser.id).neq('data_type',NS),'app_data antigua');
  for(const row of old){
   const kind=LEGACY_TYPES[row.data_type];
   if(kind){
-   const values=arrayFromLegacy(row.data,kind,row.record_id);
+   const values=arrayFromLegacy(row.data ?? row.data_json,kind,row.record_id);
    for(const obj of values){
     if(!obj||typeof obj!=='object')throw Error('Registro de '+kind+' inválido en Supabase.');
     const item={...obj};
@@ -546,7 +554,7 @@ async function fetchLegacy(){
    }
   }
   if(row.data_type==='config'||row.data_type==='company'){
-   const raw=parseJSONField(row.data);
+   const raw=parseJSONField(row.data ?? row.data_json);
    if(raw&&typeof raw==='object'&&!Array.isArray(raw)){
     const co=raw.company&&typeof raw.company==='object'?raw.company:raw;
     // No convertir claves técnicas o ajustes en campos de empresa.
@@ -557,8 +565,8 @@ async function fetchLegacy(){
   }
  }
  const sheets=await fetchPaged(()=>sdk().from('service_sheets')
-  .select('id,user_id,data,updated_at').eq('user_id',sessionUser.id),'service_sheets antigua','updated_at');
- for(const row of sheets)result.services.push(legacySheet(row.data,row));
+  .select('*').eq('user_id',sessionUser.id),'service_sheets antigua','updated_at');
+ for(const row of sheets)result.services.push(legacySheet(row.data ?? row.data_json,row));
  return result;
 }
 function mergeLegacyIntoCurrent(legacy){
@@ -642,7 +650,7 @@ async function reconcileUnverified(){
  if(!sessionUser?.id)throw Error('Es necesario iniciar sesión para verificar el envío pendiente.');
  if(!navigator.onLine)throw Error('Sin conexión: se conserva la publicación pendiente.');
  const {data,error}=await sdk().from('app_data')
-  .select('record_id,data,data_type,user_id')
+  .select('*')
   .eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',receipt.id).maybeSingle();
  if(error||!data)throw Error('No se puede confirmar todavía la publicación pendiente: '+(error?.message||'registro ausente')+'. No se reenvía.');
  const decoded=decodeVersion(data);
