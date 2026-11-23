@@ -137,9 +137,9 @@ async function testConnection(){
 async function getStatus(){const c=getConfig();return {online:navigator.onLine,pending:await pendingCount(),syncing,configured:!!(c.endpoint&&c.token),endpoint:c.endpoint||''};}
 function onStatus(fn){listeners.add(fn);getStatus().then(fn);return()=>listeners.delete(fn);}
 async function notify(){const st=await getStatus();listeners.forEach(fn=>{try{fn(st)}catch{}});}
-window.addEventListener('online',()=>{notify();syncNow();});
+window.addEventListener('online',()=>{notify();if(!window.MHSSupabase)syncNow();});
 window.addEventListener('offline',notify);
-setInterval(()=>{if(navigator.onLine)syncNow();},45000);
+setInterval(()=>{if(!window.MHSSupabase&&navigator.onLine)syncNow();},45000);
 openDB().then(notify).catch(()=>{});
 window.MHSOffline={enqueue,storeBlob,getBlob,saveState,loadState,listQueue,pendingCount,syncNow,pullRemote,testConnection,getStatus,onStatus,endpoint,getConfig,configure,clearConfig};
 })();

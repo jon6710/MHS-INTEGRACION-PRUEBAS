@@ -1,6 +1,6 @@
-const CACHE='mhs-integracion-aut-mob-v2-pdf-a4';
+const CACHE='mhs-supabase-auto-v1-20261123';
 const ASSETS=[
-  './','./index.html','./styles.css','./app.js','./offline-sync.js','./manifest.json',
+  './','./index.html','./styles.css','./app.js','./offline-sync.js','./supabase-sync.js','./manifest.json',
   './piloto-documentos.js', './approved-backgrounds/AUTOCLAVE_HOJA_SERVICIO_APROBADA.png', './approved-backgrounds/AUTOCLAVE_ALBARAN_APROBADO.png', './approved-backgrounds/AUTOCLAVE_FACTURA_APROBADA.png', './approved-backgrounds/MOBILIARIO_HOJA_SERVICIO_REFERENCIA.png', './approved-backgrounds/MOBILIARIO_ALBARAN_REFERENCIA.png', './approved-backgrounds/MOBILIARIO_FACTURA_REFERENCIA.png', './icons/icon-180.png','./icons/icon-192.png','./icons/icon-512.png'
 ];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));

@@ -49,10 +49,11 @@ function syncPayload(){
  return clone;
 }
 function save(){
+ if(window.MHSSupabase)MHSSupabase.noteEdit();
  try{db.set(state)}catch(e){console.warn('localStorage lleno; se mantiene copia IndexedDB',e);toast('Guardado local alternativo activado')}
  if(window.MHSOffline){
   MHSOffline.saveState(state).catch(()=>{});
-  MHSOffline.enqueue('state_snapshot',syncPayload(),{dedupeKey:'state-main'}).catch(()=>{});
+  if(!window.MHSSupabase)MHSOffline.enqueue('state_snapshot',syncPayload(),{dedupeKey:'state-main'}).catch(()=>{});
  }
 }
 function getCurrent(){return state.services.find(x=>x.id===currentId)}

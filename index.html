@@ -55,24 +55,22 @@
   </div>
 
   <script src="offline-sync.js"></script>
+  <script src="supabase-sync.js"></script>
   <script src="app.js"></script>
   <script src="piloto-documentos.js"></script>
   <script>
   (function(){
-    const btn=document.getElementById('syncStatusBtn'),dot=document.getElementById('syncDot'),text=document.getElementById('syncText');
-    if(!btn||!window.MHSOffline)return;
-    const paint=st=>{
-      btn.classList.toggle('is-offline',!st.online);btn.classList.toggle('has-pending',st.pending>0);btn.classList.toggle('is-syncing',st.syncing);
-      btn.title=st.syncing?'Sincronizando':(!st.online?'Sin conexión':(st.pending?`${st.pending} pendientes de sincronizar`:'Sincronización'));btn.setAttribute('aria-label',btn.title);
-      dot.textContent=st.syncing?'↻':(st.online?'●':'○');
-      if(!st.online) text.textContent=`Sin conexión · ${st.pending} pendiente${st.pending===1?'':'s'}`;
-      else if(st.syncing) text.textContent='Sincronizando…';
-      else if(st.pending&&st.configured) text.textContent=`Online · ${st.pending} pendiente${st.pending===1?'':'s'}`;
-      else if(st.pending) text.textContent=`Online · ${st.pending} pendiente${st.pending===1?'':'s'} (servidor pendiente)`;
-      else text.textContent='Online · todo guardado';
+    const b=document.getElementById('syncStatusBtn');
+    if(!b)return;
+    const refresh=()=>{
+      const s=window.MHSSupabase?.status()||{connected:false,ready:false,busy:false,error:''};
+      b.title=s.error?'Supabase: '+s.error:s.busy?'Sincronizando con Supabase':s.ready?'Supabase sincronizado':'Conectar Supabase';
+      b.setAttribute('aria-label',b.title);
+      const d=document.getElementById('syncDot'); if(d)d.textContent=s.busy?'↻':s.ready?'●':'○';
     };
-    MHSOffline.onStatus(paint);
-    btn.addEventListener('click',async()=>{const st=await MHSOffline.getStatus();if(!st.online){alert('Estás sin conexión. Puedes seguir trabajando; todo queda guardado localmente.');return}if(!st.configured){const current=MHSOffline.getConfig();const ep=prompt('URL HTTPS del Worker de Cloudflare:',current.endpoint||'');if(!ep)return;const tk=prompt('Token privado de sincronización (se guarda solo en este dispositivo):',current.token||'');if(!tk)return;try{MHSOffline.configure({endpoint:ep,token:tk});const test=await MHSOffline.testConnection();alert('Cloudflare conectado correctamente. Se iniciará la sincronización.');await MHSOffline.syncNow();}catch(e){alert('No se pudo conectar: '+(e?.message||e));}return}const r=await MHSOffline.syncNow();alert(r.synced||r.pulled?`Sincronización terminada. Subidos: ${r.synced}. Pendientes: ${r.pending}.`:`No había cambios nuevos. Pendientes: ${r.pending}.`)});
+    window.addEventListener('mhs-supabase-status',refresh);
+    b.addEventListener('click',()=>{window.MHSSupabase?.openLogin();});
+    refresh();
   })();
   </script>
 
@@ -106,7 +104,7 @@
   </script>
 
   <script>
-  window.addEventListener('mhs-app-ready',()=>{if(window.MHSOffline&&navigator.onLine&&MHSOffline.getStatus)MHSOffline.getStatus().then(s=>{if(s.configured)MHSOffline.syncNow().catch(()=>{})})});
+  window.MHSSupabase?.start();
   </script>
 
 </body>
