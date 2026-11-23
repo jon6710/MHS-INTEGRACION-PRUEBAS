@@ -393,27 +393,52 @@ function printBudget(b){if(!b)return;const c=state.clients.find(x=>x.id===b.clie
 
 printDoc=function(title,body){
  const c=state.company||{};
- // Vista imprimible en la propia aplicación: no requiere ventanas emergentes.
+ // Impresión directa en el documento actual, sin ventanas emergentes ni iframe.
  document.getElementById('mhs-print-preview')?.remove();
- const overlay=document.createElement('section');
- overlay.id='mhs-print-preview';
- overlay.setAttribute('role','dialog');
- overlay.setAttribute('aria-label','Vista previa de impresión');
- Object.assign(overlay.style,{position:'fixed',inset:'0',zIndex:'999999',background:'#f0f4f1',display:'flex',flexDirection:'column'});
- const bar=document.createElement('div');
- Object.assign(bar.style,{background:'#fff',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',borderBottom:'1px solid #b9c9bd'});
- const titleNode=document.createElement('strong');titleNode.textContent='Vista previa · '+title;
- const actions=document.createElement('div');Object.assign(actions.style,{display:'flex',gap:'8px'});
- const printButton=document.createElement('button');printButton.type='button';printButton.className='btn blue';printButton.textContent='Imprimir / Guardar PDF';
- const closeButton=document.createElement('button');closeButton.type='button';closeButton.className='btn secondary';closeButton.textContent='Cerrar';
- actions.append(printButton,closeButton);bar.append(titleNode,actions);
- const frame=document.createElement('iframe');frame.title='Documento A4 para imprimir';
- Object.assign(frame.style,{flex:'1',width:'100%',border:'0',background:'#fff'});
- overlay.append(bar,frame);document.body.append(overlay);
- closeButton.onclick=()=>overlay.remove();
- printButton.onclick=()=>{try{frame.contentWindow.focus();frame.contentWindow.print();}catch(e){alert('No se pudo imprimir: '+e.message);}};
- const w={document:{write:html=>{frame.srcdoc=html;},close:()=>{}}};
- w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Arial,sans-serif;color:#203129;font-size:11pt;background:#e9ecea;padding:24px}.a4-page{position:relative;width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:14mm;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow:hidden}header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px;display:flex;gap:12px;align-items:center}header img{max-width:100px;max-height:60px;object-fit:contain}h1{color:#0f7a49;margin:0;font-size:21pt}h2{color:#27543d}.meta{font-size:9pt;color:#64776d}.company-doc-head{display:flex;gap:12px;align-items:center;border:1px solid #d5e1db;border-radius:8px;padding:10px;margin:8px 0 18px}.company-doc-head img{max-width:100px;max-height:60px}.company-doc-head small{display:block;color:#64776d}.big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}.sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}.sign span{border-top:1px solid #777;padding-top:6px;text-align:center}.draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}table{width:100%;border-collapse:collapse;margin:15px 0}th,td{border:1px solid #ccc;padding:9px;text-align:left}.tot{text-align:right;font-size:12pt}.note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}.preview-actions{position:sticky;top:12px;z-index:2;display:flex;justify-content:center;gap:8px;margin-bottom:14px}.preview-actions button{border:0;border-radius:9px;padding:10px 14px;background:#0f7a49;color:#fff;font-weight:700;cursor:pointer}.preview-actions button.secondary{background:#fff;color:#0f7a49;border:1px solid #9fc7b0}@media(max-width:900px){body{padding:12px}.a4-page{width:100%;min-height:auto;padding:clamp(14px,4vw,32px);box-shadow:0 4px 18px rgba(0,0,0,.14)}h1{font-size:18pt}.sign{grid-template-columns:1fr;gap:18px;margin-top:36px}}@media print{body{background:#fff;padding:0}.preview-actions{display:none!important}.a4-page{width:210mm;min-height:297mm;margin:0;box-shadow:none;padding:14mm;overflow:visible}}</style></head><body><div class="preview-actions"><button onclick="window.print()">Imprimir / Guardar PDF</button><button class="secondary" onclick="window.close()">Cerrar</button></div><main class="a4-page"><header>${c.logo?`<img src="${c.logo}" alt="Logo">`:''}<div><h1>${esc(title)}</h1><div class="meta">${esc(c.commercialName||c.name||'Empresa')}${c.name&&c.commercialName?` · ${esc(c.name)}`:''}${c.taxId?` · ${esc(c.taxId)}`:''}${c.registration?` · ROESB ${esc(c.registration)}`:''}<br>${esc([c.address,c.postalCode,c.province].filter(Boolean).join(' · '))}</div></div></header>${body}<footer>Generado desde MHSARBIDE</footer></main></body></html>`);w.document.close()};
+ document.getElementById('mhs-print-style')?.remove();
+ const style=document.createElement('style');style.id='mhs-print-style';
+ style.textContent=`
+ #mhs-print-preview{position:fixed;inset:0;z-index:2147483640;background:#e9eeeb;overflow:auto;color:#203129;font:11pt Arial,sans-serif}
+ #mhs-print-preview *{box-sizing:border-box}
+ #mhs-print-preview .mhs-print-toolbar{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #cbd5cf}
+ #mhs-print-preview .mhs-print-toolbar button{cursor:pointer;padding:10px 16px;border:0;border-radius:7px;background:#087849;color:#fff;font-weight:700}
+ #mhs-print-preview .mhs-print-toolbar button:last-child{background:#dce5e0;color:#203129}
+ #mhs-print-preview .mhs-print-page{width:210mm;min-height:297mm;margin:16px auto;background:#fff;padding:14mm;box-shadow:0 3px 24px #0002}
+ #mhs-print-preview header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px;display:flex;gap:12px;align-items:center}
+ #mhs-print-preview header img{max-width:100px;max-height:60px;object-fit:contain}
+ #mhs-print-preview h1{color:#0f7a49;margin:0;font-size:21pt}
+ #mhs-print-preview h2{color:#27543d}
+ #mhs-print-preview .meta{font-size:9pt;color:#64776d}
+ #mhs-print-preview .company-doc-head{display:flex;gap:12px;align-items:center;border:1px solid #d5e1db;border-radius:8px;padding:10px;margin:8px 0 18px}
+ #mhs-print-preview .company-doc-head img{max-width:100px;max-height:60px}
+ #mhs-print-preview .company-doc-head small{display:block;color:#64776d}
+ #mhs-print-preview .big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}
+ #mhs-print-preview .sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}
+ #mhs-print-preview .sign span{border-top:1px solid #777;padding-top:6px;text-align:center}
+ #mhs-print-preview .draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}
+ #mhs-print-preview table{width:100%;border-collapse:collapse;margin:15px 0}
+ #mhs-print-preview th,#mhs-print-preview td{border:1px solid #ccc;padding:9px;text-align:left}
+ #mhs-print-preview .tot{text-align:right;font-size:12pt}
+ #mhs-print-preview .note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}
+ #mhs-print-preview footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}
+ #mhs-print-preview img{max-width:100%;object-fit:contain}
+ @media(max-width:900px){#mhs-print-preview .mhs-print-page{width:calc(100% - 16px);min-height:auto;padding:16px}}
+ @page{size:A4;margin:0}
+ @media print{
+ html,body{margin:0!important;padding:0!important;background:#fff!important}
+ body > *:not(#mhs-print-preview){display:none!important}
+ #mhs-print-preview{position:static!important;inset:auto!important;overflow:visible!important;background:#fff!important;z-index:auto!important}
+ #mhs-print-preview .mhs-print-toolbar{display:none!important}
+ #mhs-print-preview .mhs-print-page{width:210mm!important;min-height:297mm!important;margin:0!important;padding:14mm!important;box-shadow:none!important;break-after:auto!important}
+ }`;
+ document.head.appendChild(style);
+ const overlay=document.createElement('section');overlay.id='mhs-print-preview';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-label','Vista previa PDF');
+ overlay.innerHTML=`<div class="mhs-print-toolbar"><strong>Vista previa · ${esc(title)}</strong><div><button type="button" id="mhs-print-now">Imprimir / Guardar PDF</button> <button type="button" id="mhs-print-close">Cerrar</button></div></div><main class="mhs-print-page"><header>${c.logo?`<img src="${c.logo}" alt="Logo">`:''}<div><h1>${esc(title)}</h1><div class="meta">${esc(c.commercialName||c.name||'Empresa')}${c.name&&c.commercialName?` · ${esc(c.name)}`:''}${c.taxId?` · ${esc(c.taxId)}`:''}${c.registration?` · ROESB ${esc(c.registration)}`:''}<br>${esc([c.address,c.postalCode,c.province].filter(Boolean).join(' · '))}</div></div></header>${body}<footer>Generado desde MHSARBIDE</footer></main>`;
+ document.body.appendChild(overlay);
+ const close=()=>{overlay.remove();style.remove()};
+ overlay.querySelector('#mhs-print-close').onclick=close;
+ overlay.querySelector('#mhs-print-now').onclick=()=>{try{window.focus();window.print()}catch(e){alert('Error al imprimir: '+e.message)}};
+};
 
 // Esperar la carga local ANTES de que Supabase pueda leer el estado.
 // Los datos existentes en ambas ubicaciones se conservan; nunca eliminar el respaldo anterior.
