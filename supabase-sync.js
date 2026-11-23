@@ -267,66 +267,55 @@ async function fetchPaged(makeQuery,label,orderField='created_at'){
 }
 async function versions(){
  if(!await who())throw Error('Inicia sesión primero.');
- // Las versiones se consultan sin ordenar todo el JSON remoto en el servidor.
- // La lectura de control solo trae identificadores: evita descargar dos veces
- // las fotografías y los estados completos de todas las versiones.
- // Si superamos el límite de seguridad, DETENER: nunca tratar una lectura truncada
- // como un historial válido (podría sobrescribir cambios en otro dispositivo).
+ // Nunca pedir el JSON de todas las versiones en una consulta: puede superar
+ // statement_timeout antes de que PostgREST devuelva la primera respuesta.
+ // 1) Lectura acotada de metadatos. 2) Lectura individual por ID.
  const maxVersions=1000;
- const first=await sdk().from('app_data')
-  .select('record_id,data,created_at,data_type,user_id')
-  .eq('user_id',sessionUser.id).eq('data_type',NS).limit(maxVersions+1);
- if(first.error)throw Error('Fallo al leer versiones del piloto: '+first.error.message);
+ const base=()=>sdk().from('app_data')
+   .select('record_id,data_type,user_id')
+   .eq('user_id',sessionUser.id).eq('data_type',NS).limit(maxVersions+1);
+ const first=await base();
+ if(first.error)throw Error('Fallo al listar identificadores del piloto: '+first.error.message);
  const a=first.data||[];
- if(a.length>maxVersions)throw Error('Historial de versiones demasiado extenso. No sincronizar hasta optimizar la base de datos.');
- // Segunda comprobación limitada al mismo tipo de versión. La consulta anterior
- // barría también clientes y productos antiguos, pudiendo agotar el tiempo de SQL.
- const second=await sdk().from('app_data')
-  .select('record_id,data_type,user_id').eq('user_id',sessionUser.id).eq('data_type',NS).limit(maxVersions+1);
- if(second.error)throw Error('Fallo al cotejar las versiones: '+second.error.message);
- const all=second.data||[];
- if(all.length>maxVersions)throw Error('Demasiados registros para verificar el historial. Sincronización detenida sin cambios.');
- const b=all.filter(row=>row.data_type===NS);
+ if(a.length>maxVersions)throw Error('Hay más de '+maxVersions+' versiones. Se detiene la sincronización para no omitir datos.');
+ const second=await base();
+ if(second.error)throw Error('Fallo al cotejar identificadores del piloto: '+second.error.message);
+ const b=second.data||[];
+ if(b.length>maxVersions)throw Error('Historial excesivo; no se puede validar con seguridad.');
  const ids=rows=>new Set(rows.map(row=>String(row.record_id)));
  const ai=ids(a),bi=ids(b);
+ if(ai.size!==a.length||bi.size!==b.length)throw Error('El historial contiene identificadores duplicados.');
  const onlyA=[...ai].filter(id=>!bi.has(id));
  const onlyB=[...bi].filter(id=>!ai.has(id));
- if(onlyA.length||onlyB.length){
-  throw Error('LECTURA INCONSISTENTE: la consulta filtrada devuelve '+a.length+
-   ' versiones y la consulta general devuelve '+b.length+
-   '. IDs discrepantes: '+[...onlyA,...onlyB].slice(0,5).join(', ')+
-   '. No publiques ni descargues; revisa Supabase y conserva JSON.');
- }
- const parsed=[],rejected=[];
- for(const row of a){
-  if(row.user_id!==sessionUser.id||row.data_type!==NS){
-   rejected.push(String(row.record_id)+': propietario/tipo inesperado');continue;
-  }
+ if(onlyA.length||onlyB.length)
+  throw Error('Los dos listados del historial no coinciden. No se publicará nada. IDs: '+[...onlyA,...onlyB].slice(0,5).join(', '));
+ const parsed=[];
+ // Una consulta por versión; NO introducir concurrencia que recargue PostgreSQL.
+ for(const id of ai){
+  const {data:row,error}=await sdk().from('app_data')
+   .select('record_id,data,created_at,data_type,user_id')
+   .eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',id).maybeSingle();
+  if(error)throw Error('No se pudo leer la versión '+id+': '+error.message);
+  if(!row)throw Error('La versión '+id+' desapareció entre consultas. No se publicará nada.');
+  if(String(row.record_id)!==id||row.user_id!==sessionUser.id||row.data_type!==NS)
+   throw Error('La versión '+id+' tiene propietario o tipo inesperado.');
   const result=decodeVersion(row);
-  if(result.error)rejected.push(String(row.record_id)+': '+result.error);
-  else parsed.push(result.item);
+  if(result.error)throw Error('Versión '+id+' ilegible: '+result.error+'. No se publicará nada.');
+  parsed.push(result.item);
  }
- if(rejected.length)throw Error('Versiones de prueba ilegibles: '+rejected.slice(0,5).join('; ')+'. No publiques ni descargues.');
+ // Verificar además las referencias locales reconocidas, incluso sin listado.
  const localHead=await get('head');
  const draft=await get('draft');
- const checkIds=[localHead,draft?.base,draft?.id].filter(Boolean);
- // Incluso si ambos listados coinciden, verificar individualmente las referencias locales.
- for(const id of new Set(checkIds)){
+ for(const id of new Set([localHead,draft?.base,draft?.id].filter(Boolean))){
   const {data:probe,error}=await sdk().from('app_data')
-   .select('record_id,data,data_type,user_id').eq('record_id',id).limit(2);
-  if(error)throw Error('No se pudo comprobar el ID '+id+': '+error.message);
-  const row=(probe||[]).find(r=>String(r.record_id)===String(id));
-  if(row&&row.user_id===sessionUser.id&&row.data_type===NS){
-   const decoded=decodeVersion(row);
-   if(decoded.error)throw Error('Registro '+id+' ilegible: '+decoded.error);
-   if(!ai.has(String(id)))throw Error('LECTURA INCOMPLETA: Supabase devuelve el registro '+id+
-    ' directamente, pero NO aparece en los listados ('+a.length+' versiones). No publiques ni descargues.');
-  }else if(id===localHead){
-   throw Error('El ID local reconocido '+id+' no se pudo consultar directamente. No publiques ni descargues.');
-  }
+   .select('record_id,data_type,user_id')
+   .eq('user_id',sessionUser.id).eq('data_type',NS).eq('record_id',id).maybeSingle();
+  if(error)throw Error('No se pudo comprobar la referencia local '+id+': '+error.message);
+  if(probe&&!ai.has(String(id)))
+   throw Error('La versión '+id+' existe, pero falta en el listado. Sincronización detenida.');
+  if(id===localHead&&!probe)
+   throw Error('La versión local reconocida '+id+' no está accesible. No se publicará nada.');
  }
- const unique=ids(parsed);
- if(unique.size!==parsed.length)throw Error('IDs de versión duplicados. No publiques ni descargues.');
  return parsed;
 }
 

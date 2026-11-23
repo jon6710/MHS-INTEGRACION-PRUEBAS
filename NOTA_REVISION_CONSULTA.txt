@@ -1,0 +1,7 @@
+MHSARBIDE — CORRECCIÓN DE LECTURA DEL HISTORIAL (20/11/2026)
+
+Se sustituyó únicamente la consulta global de JSON de versiones por dos listados acotados de identificadores y lecturas individuales. No se modifican registros existentes ni las tablas. Se conserva el bloqueo de seguridad ante errores/conflictos.
+
+Pruebas aisladas realizadas: 6 (historial, versión individual, vacío, error al listar, error de lectura individual y registro faltante). Sintaxis JS, ZIP y conservación de los PDF comprobadas.
+
+NO se ha probado contra el Supabase real. Si incluso la consulta pequeña de identificadores falla por timeout, será necesario investigar índices/plan SQL con el propietario del proyecto. La sincronización de fotos y los PDF siguen pendientes de prueba funcional real. No usar en clientes hasta validar.
