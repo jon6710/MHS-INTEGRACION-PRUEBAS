@@ -1,9 +1,9 @@
 (()=>{
 'use strict';
-const DB_NAME='mhs_offline_integracion_aut_mob_v1';
+const DB_NAME='mhs_offline_v54_ensayos';
 const DB_VERSION=2;
 const Q='queue', B='blobs', S='state';
-const CFG_KEY='mhs_cloudflare_integracion_aut_mob_v1_config';
+const CFG_KEY='mhs_cloudflare_v54_ensayos_config';
 let dbp;
 const listeners=new Set();
 let syncing=false;
@@ -137,9 +137,9 @@ async function testConnection(){
 async function getStatus(){const c=getConfig();return {online:navigator.onLine,pending:await pendingCount(),syncing,configured:!!(c.endpoint&&c.token),endpoint:c.endpoint||''};}
 function onStatus(fn){listeners.add(fn);getStatus().then(fn);return()=>listeners.delete(fn);}
 async function notify(){const st=await getStatus();listeners.forEach(fn=>{try{fn(st)}catch{}});}
-window.addEventListener('online',()=>{notify();if(!window.MHSSupabase)syncNow();});
+window.addEventListener('online',()=>{notify();syncNow();});
 window.addEventListener('offline',notify);
-setInterval(()=>{if(!window.MHSSupabase&&navigator.onLine)syncNow();},45000);
+setInterval(()=>{if(navigator.onLine)syncNow();},45000);
 openDB().then(notify).catch(()=>{});
 window.MHSOffline={enqueue,storeBlob,getBlob,saveState,loadState,listQueue,pendingCount,syncNow,pullRemote,testConnection,getStatus,onStatus,endpoint,getConfig,configure,clearConfig};
 })();

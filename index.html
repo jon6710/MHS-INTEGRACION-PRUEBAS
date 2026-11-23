@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Mis Hojas">
-  <meta name="description" content="Mis Hojas de Servicio">
-  <title>MHSARBIDE · Mis Hojas de Servicio</title>
+  <meta name="description" content="MHSARBIDE">
+  <title>MHSARBIDE</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="stylesheet" href="styles.css">
@@ -29,18 +29,18 @@
         <button class="side-link" data-area="facturacion">€ <span>Facturación</span></button>
         <button class="side-link" data-area="presupuestos">🧾 <span>Presupuestos</span></button>
         <button class="side-link" data-area="documentos">▱ <span>Documentos</span></button>
-        <button class="side-link" id="btnDocsPilot" type="button">📄 <span>Modelos PDF</span></button>
+        <button class="side-link" id="btnDocsPilot" type="button">📄 <span>Plantillas A4</span></button>
         <button class="side-link" id="btnClients">👥 <span>Clientes</span></button>
         <button class="side-link" id="btnProducts">🧴 <span>Productos</span></button>
         <button class="side-link" id="btnSettings">⚙ <span>Empresa / copias</span></button>
         <button class="side-link" id="btnExit">↪ <span>Salir</span></button>
       </nav>
-      <div class="side-foot"><strong>MHSARBIDE</strong><small>Gestión de servicios</small></div>
+      <div class="side-foot"><strong>MHSARBIDE</strong><small>Empresa · Sello · Firma · Offline</small></div>
     </aside>
     <section class="workspace">
       <header class="topbar no-print">
         <div><strong>MHSARBIDE</strong><small>Servicios, documentación, facturación y certificados</small></div>
-        <div class="topactions"><button class="sync-status" id="syncStatusBtn" type="button" aria-label="Estado de sincronización"><span id="syncDot">●</span><span id="syncText" class="visually-hidden">Preparando conexión…</span></button><button class="btn ghost install-app-btn" id="installAppBtn" type="button" hidden>Instalar app</button></div>
+        <div class="topactions"><button class="btn ghost install-app-btn" id="installAppBtn" type="button" hidden>Instalar app</button></div>
       </header>
       <main id="app"></main>
     </section>
@@ -55,24 +55,11 @@
   </div>
 
   <script src="offline-sync.js"></script>
-  <script src="supabase-sync.js"></script>
   <script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="supabase-sync.js"></script>
   <script src="piloto-documentos.js"></script>
-  <script>
-  (function(){
-    const b=document.getElementById('syncStatusBtn');
-    if(!b)return;
-    const refresh=()=>{
-      const s=window.MHSSupabase?.status()||{connected:false,ready:false,busy:false,error:''};
-      b.title=s.error?'Supabase: '+s.error:s.busy?'Sincronizando con Supabase':s.ready?'Supabase sincronizado':'Conectar Supabase';
-      b.setAttribute('aria-label',b.title);
-      const d=document.getElementById('syncDot'); if(d)d.textContent=s.busy?'↻':s.ready?'●':'○';
-    };
-    window.addEventListener('mhs-supabase-status',refresh);
-    b.addEventListener('click',()=>{window.MHSSupabase?.openLogin();});
-    refresh();
-  })();
-  </script>
+
 
   <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}))}</script>
 
@@ -101,10 +88,6 @@
     close.addEventListener('click',()=>help.hidden=true);
     help.addEventListener('click',e=>{if(e.target===help) help.hidden=true;});
   })();
-  </script>
-
-  <script>
-  window.MHSSupabase?.start();
   </script>
 
 </body>
