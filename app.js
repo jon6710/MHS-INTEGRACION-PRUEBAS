@@ -374,6 +374,47 @@ function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentRe
 }
 function setupDocSignature(s){const r=s.data.documentReceipt=s.data.documentReceipt||{},canvas=$('#docSignature'),ctx=canvas.getContext('2d');ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#203129';let drawing=false,hasInk=false;const pos=e=>{const x=canvas.getBoundingClientRect(),p=e;return{x:(p.clientX-x.left)*canvas.width/x.width,y:(p.clientY-x.top)*canvas.height/x.height}};canvas.onpointerdown=e=>{drawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()};canvas.onpointermove=e=>{if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasInk=true;e.preventDefault()};window.addEventListener('pointerup',()=>drawing=false);if(r.signature){const im=new Image();im.onload=()=>{ctx.drawImage(im,0,0,canvas.width,canvas.height);hasInk=true};im.src=r.signature}$('#clearDocSignature').onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);hasInk=false;r.signature=''};canvas._hasInk=()=>hasInk;canvas._data=()=>canvas.toDataURL('image/png')}
 function collectServiceDocument(s,forPrint=false){const r=s.data.documentReceipt=s.data.documentReceipt||{},canvas=$('#docSignature');r.kind=$('#docKind').value;r.number=$('#docNo').value.trim();r.date=$('#docDate').value;r.notes=$('#docNotes').value.trim();r.receiver=$('#docReceiver').value.trim();r.receiverRole=$('#docRole').value.trim();r.signDate=$('#docSignDate').value.trim();r.carrier=$('#docCarrier').value.trim();r.plate=$('#docPlate').value.trim();if(canvas?._hasInk?.())r.signature=canvas._data();if(r.kind==='Albarán'&&(!r.receiver||!r.signDate||!r.signature)){alert('Para generar un Albarán debes indicar quién recibe, fecha/hora y firma de recepción.');return false}s.updatedAt=new Date().toISOString();save();return true}
+// Componentes del documento: restablecidos para la V54.
+// No modifican servicios ni guardan datos: solo producen HTML de impresión.
+function serviceDetailsHtml(s){
+ const d=s?.data||{};
+ const fmt=(label,value)=>{
+  if(value===null||value===undefined||value==='')return '';
+  if(typeof value==='boolean')return value?`<tr><th>${esc(label)}</th><td>Sí</td></tr>`:'';
+  if(typeof value==='object')return '';
+  return `<tr><th>${esc(label)}</th><td>${esc(value)}</td></tr>`;
+ };
+ const selected={
+  madera:[['Tratamiento','woodTreatment'],['Superficie','woodArea'],['Producto','woodProduct'],['Dosis','woodDose'],['Zonas','woodZones'],['Observaciones','woodObs']],
+  ddd:[['Actuación','dddType'],['Plaga / objetivo','dddTarget'],['Producto','dddProduct'],['Dosis','dddDose'],['Zonas','dddAreas'],['Observaciones','dddObs']],
+  autoclave:[['Referencia del cliente','clientDeliveryNo'],['Volumen declarado (m³)','declaredM3'],['Volumen comprobado (m³)','checkedM3'],['Método de comprobación','checkMethod'],['Tratamiento','autoTreatment'],['Producto','productName'],['Humedad','humidity'],['Clase de uso','useClass'],['Observaciones','autoObs']],
+  mobiliario:[['Número de piezas','furnQty'],['Descripción','furnDesc'],['Tratamiento','furnTreatment'],['Estado / incidencias','furnCondition'],['Observaciones','furnObs']],
+  termitas:[['Sistema','termiteSystem'],['Fecha de instalación','termiteInstallationDate'],['Estaciones','termiteStationsTotal'],['Notas de instalación','termiteInstallationNotes'],['Observaciones','termiteNotes']]
+ };
+ let rows=(selected[s?.type]||[]).map(([label,key])=>fmt(label,d[key])).join('');
+ if(s?.type==='mobiliario'&&Array.isArray(d.furnLines)&&d.furnLines.length){
+  const list=d.furnLines.map((line,i)=>fmt(`Mueble ${i+1}`,[line?.description,line?.qty?`Unidades: ${line.qty}`:'',line?.condition,line?.notes].filter(Boolean).join(' · '))).join('');
+  rows+=list;
+ }
+ if(s?.type==='termitas'&&Array.isArray(d.termiteVisits))rows+=fmt('Visitas registradas',d.termiteVisits.length);
+ return rows?`<h3>Datos del servicio</h3><table class="mhs-service-details"><tbody>${rows}</tbody></table>`:'';
+}
+function servicePhotosHtml(s){
+ const photos=s?.photos||{};
+ const image=(src,label)=>{
+  // Solo referencias de imagen seguras para incluir en el HTML generado.
+  if(typeof src!=='string'||!/^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(src))return '';
+  return `<figure style="margin:6px;max-width:46%;display:inline-block;vertical-align:top;break-inside:avoid"><img src="${src}" alt="${esc(label)}" style="max-width:100%;max-height:140px;object-fit:contain;display:block"><figcaption style="font-size:9pt">${esc(label)}</figcaption></figure>`;
+ };
+ const pieces=[];
+ for(const [key,label] of [['before','Antes'],['after','Después']]){
+  const html=image(photos[key],label);if(html)pieces.push(html);
+ }
+ if(Array.isArray(s?.data?.furnLines))for(const [i,line] of s.data.furnLines.entries()){
+  const html=image(line?.photo||line?.image,`Mueble ${i+1}`);if(html)pieces.push(html);
+ }
+ return pieces.length?`<h3>Fotografías</h3><div style="break-inside:avoid">${pieces.join('')}</div>`:'';
+}
 function printServiceDocument(s){const r=s.data.documentReceipt||{},c=getCatalogClient(s),photos=servicePhotosHtml(s),clientPay=c?`<p><b>Forma de pago:</b> ${esc(c.paymentMethod||'—')}${c.iban?` · <b>IBAN:</b> ${esc(maskIban(c.iban))}`:''}</p>`:'';let receipt='';if(r.kind==='Albarán')receipt=`<h3>Recepción</h3><p><b>Recibido por:</b> ${esc(r.receiver)} ${r.receiverRole?`· ${esc(r.receiverRole)}`:''}<br><b>Fecha/hora:</b> ${esc(r.signDate)}${r.carrier?`<br><b>Transportista:</b> ${esc(r.carrier)}`:''}${r.plate?` · <b>Matrícula:</b> ${esc(r.plate)}`:''}</p><p><img src="${r.signature}" alt="Firma recepción" style="max-width:320px;max-height:130px;border-bottom:1px solid #777"></p>`;printDoc(r.kind==='Albarán'?'HOJA DE SERVICIO / ALBARÁN':'HOJA DE SERVICIO',`${companyHeaderHtml()}<h2>${esc(typeMeta[s.type].name)}</h2><p><b>N.º documento:</b> ${esc(r.number||s.number||'')} · <b>Fecha:</b> ${esc(r.date||s.date||'')}</p><p><b>Cliente:</b> ${esc(s.client.name)}<br><b>Dirección:</b> ${esc(s.client.address||c?.address||'')}<br><b>Contacto:</b> ${esc(s.client.contact||c?.contact||'')} · ${esc(s.client.phone||c?.phone||'')}</p>${clientPay}${serviceDetailsHtml(s)}${s.notes?`<p><b>Observaciones:</b><br>${esc(s.notes)}</p>`:''}${r.notes?`<p><b>Observaciones documento:</b><br>${esc(r.notes)}</p>`:''}${photos}${receipt}${companyValidationHtml()}`)}
 
 renderArea=function(area){if(area==='facturacion')return renderInvoices();if(area==='presupuestos')return renderBudgets();const title=area==='albaranes'?'Hoja PDF / Albarán':'Documentos';const eligible=state.services;app.innerHTML=`<section class="hero"><div><span class="eyebrow">ÁREA COMÚN</span><h1>${title}</h1><p>${area==='albaranes'?'Cada hoja de servicio puede generar su PDF técnico o funcionar como albarán con firma de recepción.':'Documentos y certificados asociados a los servicios.'}</p></div></section><section class="list-card"><div class="list-head"><h2>Servicios disponibles</h2><span class="tag">${eligible.length}</span></div><div class="service-list">${eligible.length?eligible.map(s=>`<div class="service-row area-row"><div><b>${typeMeta[s.type].icon} ${esc(typeMeta[s.type].name)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div><small>${esc(s.date||'')}</small></div><div><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div></div><button class="btn blue" data-doc-open="${s.id}">${area==='albaranes'?'Hoja PDF / Albarán':'Abrir hoja'}</button></div>`).join(''):'<div class="empty">Todavía no hay servicios.</div>'}</div></section>`;app.querySelectorAll('[data-doc-open]').forEach(b=>b.onclick=()=>{currentId=b.dataset.docOpen;setActiveNav(getCurrent()?.type);area==='albaranes'?openServiceDocument(getCurrent()):renderService()})};
