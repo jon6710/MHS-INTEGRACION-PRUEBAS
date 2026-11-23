@@ -1,4 +1,4 @@
-const CACHE='mhs-v54-print-helpers-20261123-fix2';
+const CACHE='mhs-v54-aprobados-20261123-b2';
 const ASSETS=[
   './','./index.html','./styles.css','./app.js','./offline-sync.js','./manifest.json',
   './supabase-sync.js','./piloto-documentos.js','./icons/icon-180.png','./icons/icon-192.png','./icons/icon-512.png'

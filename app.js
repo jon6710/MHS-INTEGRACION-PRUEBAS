@@ -584,6 +584,141 @@ window.MHSApp={
 
  }
 };
+// ÚNICAMENTE PRESENTACIÓN DE DOCUMENTOS: modelos visuales aprobados V54.
+// Sin lecturas/escrituras de Supabase o almacenamiento, ni cambios de datos.
+const MHS_APPROVED_MAP={
+ 'autoclave:service':'AUTOCLAVE_HOJA_SERVICIO_APROBADA.png',
+ 'autoclave:delivery':'AUTOCLAVE_ALBARAN_APROBADO.png',
+ 'autoclave:invoice':'AUTOCLAVE_FACTURA_APROBADA.png',
+ 'mobiliario:service':'MOBILIARIO_HOJA_SERVICIO_REFERENCIA.png',
+ 'mobiliario:delivery':'MOBILIARIO_ALBARAN_REFERENCIA.png',
+ 'mobiliario:invoice':'MOBILIARIO_FACTURA_REFERENCIA.png'
+};
+function approvedText(x,y,w,h,value,fs=9,align='left',bold=false){
+ if(value===null||value===undefined||String(value).trim()==='')return '';
+ const p=n=>(n/595.276*100).toFixed(4)+'%';
+ const q=n=>(n/841.89*100).toFixed(4)+'%';
+ return `<div class="mhs-ap-value" data-base-size="${fs}" style="left:${p(x)};top:${q(y)};width:${p(w)};height:${q(h)};font-size:${fs}pt;text-align:${align};font-weight:${bold?700:400}">${esc(String(value))}</div>`;
+}
+function approvedImage(x,y,w,h,src){
+ if(typeof src!=='string'||!/^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(src))return '';
+ return `<img class="mhs-ap-image" alt="Fotografía del servicio" src="${src}" style="left:${(x/595.276*100).toFixed(4)}%;top:${(y/841.89*100).toFixed(4)}%;width:${(w/595.276*100).toFixed(4)}%;height:${(h/841.89*100).toFixed(4)}%">`;
+}
+const apDate=v=>{const s=String(v||'');if(/^\d{4}-\d\d-\d\d/.test(s))return `${s.slice(8,10)}/${s.slice(5,7)}/${s.slice(0,4)}`;return s};
+const apMoney=v=>Number(v||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+function approvedPresent(kind,html){
+ const asset=MHS_APPROVED_MAP[kind];if(!asset)throw Error('No existe modelo aprobado para '+kind);
+ document.getElementById('mhs-ap-dialog')?.remove();document.getElementById('mhs-ap-css')?.remove();
+ const style=document.createElement('style');style.id='mhs-ap-css';style.textContent=`
+ #mhs-ap-dialog{position:fixed!important;inset:0!important;z-index:2147483647!important;background:#d9dfdc!important;overflow:auto!important;font:14px Arial,sans-serif;color:#163b2a}
+ #mhs-ap-dialog *{box-sizing:border-box}
+ #mhs-ap-tools{position:sticky;top:0;z-index:20;background:white;padding:12px 18px;display:flex;gap:12px;align-items:center;justify-content:space-between;box-shadow:0 2px 5px #0002}
+ #mhs-ap-tools button{padding:10px 15px;border:0;border-radius:6px;background:#0b7247;color:white;cursor:pointer;font-weight:bold}
+ #mhs-ap-tools button:last-child{background:#e0e5e3;color:#172d25}
+ #mhs-ap-page{position:relative;width:210mm;height:297mm;margin:14px auto;background:white;overflow:hidden;box-shadow:0 2px 15px #0003}
+ #mhs-ap-page>img.mhs-ap-bg{position:absolute;inset:0;width:100%;height:100%;display:block}
+ #mhs-ap-page .mhs-ap-value{position:absolute;z-index:1;font-family:Arial,Helvetica,sans-serif;line-height:1.12;white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;color:#172c22;padding:0 1pt}
+ #mhs-ap-page .mhs-ap-image{position:absolute;z-index:1;object-fit:contain;object-position:center center}
+ #mhs-ap-page .mhs-ap-draft{position:absolute;top:44%;left:20%;font-size:40pt;font-weight:900;color:#ba1a1a33;transform:rotate(-20deg);z-index:4}
+ @page{size:A4;margin:0}
+ @media print{html,body{margin:0!important;padding:0!important;overflow:visible!important;background:white!important}body>*:not(#mhs-ap-dialog){display:none!important}#mhs-ap-dialog{position:static!important;inset:auto!important;background:white!important;overflow:visible!important}#mhs-ap-tools{display:none!important}#mhs-ap-page{width:210mm!important;height:297mm!important;margin:0!important;box-shadow:none!important;break-after:avoid!important;page-break-after:avoid!important}#mhs-ap-page .mhs-ap-value{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+ `;
+ document.head.appendChild(style);
+ const dialog=document.createElement('section');dialog.id='mhs-ap-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-label','Documento aprobado A4');
+ dialog.innerHTML=`<div id="mhs-ap-tools"><b>Documento aprobado V54 · 1 página A4</b><div><button type="button" id="mhs-ap-print">Imprimir / Guardar PDF</button> <button type="button" id="mhs-ap-close">Cerrar</button></div></div><div id="mhs-ap-page"><img class="mhs-ap-bg" alt="Modelo original V54" src="plantillas-impresion/${asset}">${html}</div>`;
+ document.body.appendChild(dialog);
+ const close=()=>{dialog.remove();style.remove()};
+ dialog.querySelector('#mhs-ap-close').onclick=close;
+ const bg=dialog.querySelector('.mhs-ap-bg');bg.onerror=()=>alert('No se ha encontrado el fondo del documento aprobado. Comprueba que has subido la carpeta plantillas-impresion.');
+ const check=()=>{
+  let fails=[];
+  dialog.querySelectorAll('.mhs-ap-value').forEach(el=>{let base=Number(el.dataset.baseSize||9);while(el.scrollHeight>el.clientHeight+2&&base>5){base-=.5;el.style.fontSize=base+'pt'}if(el.scrollHeight>el.clientHeight+2)fails.push(el.textContent?.slice(0,35));});
+  return fails;
+ };
+ dialog.querySelector('#mhs-ap-print').onclick=()=>{
+  if(!bg.complete||!bg.naturalWidth){alert('El modelo aprobado todavía no se ha cargado.');return}
+  const failures=check();if(failures.length){alert('Hay campos demasiado largos para la hoja A4. No se imprimirá información cortada: '+failures.join(' / '));return}
+  window.print();
+ };
+}
+function approvedDoc(s,documentKind,invoiceData){
+ const d=s?.data||{},r=d.documentReceipt||{},t=d.transport||{},c=getCatalogClient(s)||s.client||{},cl={...c,...(s.client||{})};
+ const date=apDate(documentKind==='delivery'?(r.date||t.date||s.date):documentKind==='invoice'?(invoiceData?.date||s.date):(r.date||s.date));
+ const no=documentKind==='delivery'?(r.number||t.number||serviceDocNo(s,'ALB')):documentKind==='invoice'?(invoiceData?.number||serviceDocNo(s,'FRA')):(r.number||s.number);
+ const p=(...a)=>approvedText(...a),img=(...a)=>approvedImage(...a);
+ let h='';const mob=s.type==='mobiliario';
+ const lines=mob?(Array.isArray(d.furnLines)&&d.furnLines.some(l=>l?.description||l?.qty)?d.furnLines:[{description:d.furnDesc||'',qty:d.furnQty||'',condition:d.furnCondition||'',notes:d.furnTreatment||''}]):
+ (d.transport?.lines?.length?d.transport.lines:d.woodLines?.length?d.woodLines:[{description:d.autoTreatment||d.productName||'Tratamiento de madera',quantity:d.checkedM3||d.declaredM3||'',unit:'m³'}]);
+ const onePhoto=(lines.find(l=>/^data:image\//.test(l?.photo||l?.image||''))||{});const photo=onePhoto.photo||onePhoto.image||s.photos?.before||s.photos?.after||'';
+ const obs=[r.notes,d.furnObs,d.autoObs,s.notes].filter(x=>typeof x==='string'&&x.trim()).find(Boolean)||'';
+ if(documentKind==='service'){
+  if(mob){
+   h+=p(492,88,80,17,no,9)+p(490,107,80,16,date,9);
+   h+=p(145,162,118,16,cl.name,9)+p(330,162,94,16,cl.taxId,9)+p(492,162,75,16,cl.contact,9);
+   h+=p(85,181,177,16,cl.address,9)+p(370,181,195,16,[cl.postalCode,cl.province].filter(Boolean).join(' / '),9);
+   h+=p(80,202,170,15,cl.phone,9)+p(320,202,245,15,cl.email,9);
+   h+=p(486,262,82,16,apDate(d.furnPickupDate||s.date),8)+p(486,280,82,16,apDate(d.furnDeliveryDate),8);
+   lines.slice(0,6).forEach((l,i)=>{const y=288+i*18;h+=p(28,y,162,17,l.description||'',8)+p(205,y,40,17,l.qty||l.quantity||'',8)+p(255,y,57,17,l.condition||'',8)+p(317,y,82,17,l.notes||'',8)});
+   h+=img(30,462,183,108,photo)+p(416,531,151,23,d.furnStateObs||'',8);
+   h+=p(28,623,537,40,obs,9)+p(89,707,198,20,state.company?.directorName||state.company?.name||'',10);
+   h+=img(303,722,244,65,state.company?.directorSignature||state.company?.seal||'');
+  }else{
+   h+=p(487,73,73,15,no,8)+p(490,95,70,15,date,8);
+   h+=p(139,177,155,14,cl.name,8)+p(355,177,75,14,cl.taxId,8)+p(491,177,74,14,cl.contact,8);
+   h+=p(74,193,182,14,cl.address,8)+p(358,193,207,14,[cl.postalCode,cl.province].filter(Boolean).join(' / '),8);
+   h+=p(74,211,182,13,cl.phone,8)+p(249,211,311,13,cl.email,8);
+   h+=p(65,274,96,15,d.woodSpecies||d.species||'',9)+p(267,274,36,15,d.humidity||'',8)+p(351,274,56,15,d.useClass||'',8);
+   (d.woodLines||[]).slice(0,4).forEach((l,i)=>{const y=316+i*18;h+=p(40,y,41,16,l.qty||l.units||'',8)+p(98,y,60,16,l.length||'',8)+p(164,y,58,16,l.width||'',8)+p(239,y,55,16,l.thickness||'',8)+p(302,y,48,16,l.volume||'',8)});
+   h+=p(205,393,148,13,`${d.checkedM3||d.declaredM3||'0'} m³`,8);
+   h+=p(442,272,108,14,d.autoStart||'',8)+p(459,291,98,14,d.autoEnd||'',8);
+   const cycle=d.autoCycle||{};[['vacInitial',342],['vacConstant',356],['sprayVac',371],['sprayDecreasing',386],['drying',401]].forEach(([k,y])=>h+=p(485,y,77,13,cycle[k]||'',8));
+   h+=img(24,455,149,117,photo)+p(240,454,108,13,d.productName||'',8)+p(264,513,87,13,d.clientDeliveryNo||'',8);
+   h+=p(18,622,541,33,obs,8)+p(88,709,160,16,state.company?.directorName||'',9)+img(224,710,309,95,state.company?.directorSignature||state.company?.seal||'');
+  }
+ }else if(documentKind==='delivery'){
+  if(mob){
+   h+=p(472,85,90,15,no,8)+p(470,101,90,14,date,8);
+   h+=p(129,160,191,16,cl.name,9)+p(405,160,163,16,cl.address,8);
+   h+=p(78,179,106,14,cl.phone,8)+p(246,179,155,14,cl.email,8)+p(462,179,104,14,cl.contact,8);
+   lines.slice(0,6).forEach((l,i)=>{const y=256+i*17;h+=p(29,y,208,15,l.description||'',8)+p(265,y,52,15,l.qty||l.quantity||'',8)+p(331,y,55,15,l.condition||'',8)+p(388,y,175,15,l.notes||'',8)});
+   h+=img(30,392,202,119,photo)+p(303,392,254,15,d.furnTreatment||'',8)+p(355,408,201,15,apDate(d.furnPickupDate),8)+p(410,424,147,15,apDate(d.furnDeliveryDate),8)+p(326,439,233,16,d.furnTreatment||'',8);
+   h+=p(264,488,292,32,obs,9)+p(132,562,181,15,t.company||r.carrier||'',8)+p(125,581,176,14,t.plate||r.plate||'',8)+p(372,581,177,14,t.driver||r.receiver||'',8);
+   h+=img(36,655,248,88,t.signature||r.signature||'')+img(315,661,242,90,state.company?.seal||state.company?.directorSignature||'');
+  }else{
+   h+=p(499,81,63,13,no,8)+p(499,96,62,13,date,8);
+   h+=p(123,153,155,14,cl.name,8)+p(350,153,211,14,cl.address,8)+p(68,171,131,14,cl.phone,8)+p(231,171,171,14,cl.email,8)+p(453,171,108,14,cl.contact,8);
+   lines.slice(0,5).forEach((l,i)=>{const y=247+i*16;h+=p(27,y,116,14,l.description||'',7)+p(155,y,39,14,l.qty||l.quantity||'',7)+p(215,y,50,14,l.length||'',7)+p(277,y,50,14,l.width||'',7)+p(339,y,44,14,l.thickness||'',7)+p(397,y,41,14,d.humidity||'',7)+p(453,y,58,14,d.useClass||'',7)+p(518,y,47,14,l.notes||'',7)});
+   h+=img(30,380,177,90,photo)+p(272,374,275,14,d.autoTreatment||'',8)+p(322,389,100,14,d.autoStart||'',8)+p(480,389,84,14,d.autoEnd||'',8)+p(309,406,240,14,d.productName||'',8)+p(334,421,208,14,d.useClass||'',8);
+   h+=p(234,473,320,30,obs,9)+p(115,547,183,14,t.company||r.carrier||'',8)+p(108,566,175,13,t.plate||r.plate||'',8)+p(346,566,190,13,t.driver||r.receiver||'',8);
+   h+=img(35,656,246,80,t.signature||r.signature||'')+img(310,652,249,88,state.company?.seal||state.company?.directorSignature||'');
+  }
+ }else{
+  const inv=invoiceData||{};const base=Number(inv.base||0),vat=Number(inv.vat??21),total=base*(1+vat/100);
+  h+=p(471,74,89,15,no,8)+p(473,98,90,15,date,8);
+  h+=p(120,189,164,14,cl.name,9)+p(362,189,203,14,cl.phone,9)+p(61,207,212,14,cl.taxId,9)+p(350,207,213,14,cl.email,9);
+  h+=p(95,225,190,14,cl.address,9)+p(427,225,136,14,cl.contact,9)+p(116,242,161,14,cl.postalCode,9)+p(403,242,161,14,cl.paymentMethod,9)+p(95,259,155,14,cl.province,9);
+  const desc=inv.concept||`${mob?'Tratamiento de mobiliario':'Tratamiento de madera en autoclave'}`;
+  h+=p(28,348,59,30,s.number||'',7)+p(110,347,169,36,desc,7)+p(283,348,48,18,1,8)+p(347,348,47,18,apMoney(base),8)+p(411,348,38,18,'0',8)+p(461,348,38,18,vat,8)+p(515,348,47,18,apMoney(base),8);
+  h+=p(31,604,250,66,inv.notes||obs,9)+p(504,585,58,14,apMoney(base),8,'right');
+  h+=p(310,653,42,14,vat+' %',8)+p(393,653,58,14,apMoney(base),8)+p(506,653,56,14,apMoney(base*vat/100),8);
+  h+=p(488,703,74,16,apMoney(total),9,'right',true);
+  h+=p(77,724,182,14,cl.paymentMethod||'Transferencia',8)+p(78,742,182,14,'',8)+p(134,760,150,14,cl.iban||'',7);
+  if(inv.status&&inv.status!=='EMITIDA')h+='<div class="mhs-ap-draft">BORRADOR</div>';
+ }
+ approvedPresent(s.type+':'+documentKind,h);
+}
+const oldApprovedPrintService=printServiceDocument;
+printServiceDocument=function(s){
+ if(!['autoclave','mobiliario'].includes(s?.type))return oldApprovedPrintService(s);
+ return approvedDoc(s,s.data?.documentReceipt?.kind==='Albarán'?'delivery':'service');
+};
+const oldApprovedPrintTransport=printTransport;
+printTransport=function(s){if(!['autoclave','mobiliario'].includes(s?.type))return oldApprovedPrintTransport(s);const t=s.data?.transport||{};if(!t.receiver||!t.signDate||!t.signature){alert('El albarán necesita firma de recepción antes de imprimir.');return}return approvedDoc(s,'delivery')};
+const oldApprovedPrintInvoice=printInvoice;
+printInvoice=function(i){const s=state.services.find(x=>x.id===i?.serviceId);if(!s||!['autoclave','mobiliario'].includes(s.type))return oldApprovedPrintInvoice(i);return approvedDoc(s,'invoice',i)};
+const oldApprovedBillingPreview=printBillingPreview;
+printBillingPreview=function(s,b){if(!['autoclave','mobiliario'].includes(s?.type))return oldApprovedBillingPreview(s,b);return approvedDoc(s,'invoice',{number:serviceDocNo(s,'FRA'),date:s.date,base:b.base,vat:b.base?100*b.iva/b.base:21,concept:b.concept,status:'BORRADOR'})};
+
 window.dispatchEvent(new CustomEvent('mhs-app-ready'));
 renderDashboard();
 // v54 piloto: no importar automaticamente datos de otras versiones.

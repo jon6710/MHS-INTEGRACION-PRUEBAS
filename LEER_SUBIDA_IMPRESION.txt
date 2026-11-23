@@ -1,0 +1,7 @@
+MHSARBIDE V54 — SÓLO IMPRESIÓN EN MODELOS APROBADOS
+Sube app.js y sw.js a la raíz del repositorio y la carpeta plantillas-impresion completa.
+No sustituyas index.html, offline-sync.js, supabase-sync.js ni plantillas-aprobadas.
+Este parche no cambia datos ni tablas de Supabase.
+NO usar si el app.js publicado no corresponde a la última V54 que ya imprime.
+Comprobaciones realizadas: sintaxis JS, funciones de composición 6 documentos, ZIP.
+PENDIENTE: prueba visual de impresión en Chrome y verificación funcional real.
