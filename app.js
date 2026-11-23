@@ -1,6 +1,6 @@
 (()=>{
 'use strict';
-const APP='mhs_pilot_v54_ensayos';
+const APP='mhs_integracion_aut_mob_pruebas_v1';
 const app=document.getElementById('app');
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -10,7 +10,7 @@ const trunc4=n=>Number.isFinite(n)?Math.trunc(n*10000)/10000:NaN;
 const num=v=>{if(v===null||v===undefined||String(v).trim()==='')return NaN;return Number(String(v).trim().replace(',','.'))};
 const fmt4=v=>Number.isFinite(trunc4(v))?trunc4(v).toFixed(4).replace('.',','):'—';
 const money=v=>Number.isFinite(v)?v.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €':'—';
-const db={get(){try{return JSON.parse(localStorage.getItem(APP)||'{"services":[],"company":{},"clients":[],"products":[]}')}catch{return {services:[],company:{},clients:[],products:[]}}}};
+const db={get(){try{return JSON.parse(localStorage.getItem(APP)||'{"services":[],"company":{},"clients":[],"products":[]}')}catch{return {services:[],company:{},clients:[],products:[]}}},set(v){localStorage.setItem(APP,JSON.stringify(v))}};
 let state=db.get();state.services=Array.isArray(state.services)?state.services:[];state.company=state.company||{};state.clients=Array.isArray(state.clients)?state.clients:[];state.products=Array.isArray(state.products)?state.products:[];state.invoices=Array.isArray(state.invoices)?state.invoices:[];state.budgets=Array.isArray(state.budgets)?state.budgets:[];state.numbering=state.numbering||{};if(!Number.isFinite(Number(state.numbering.serviceNext)))state.numbering.serviceNext=26001;let currentId=null;
 const typeMeta={
  madera:{name:'Madera in situ',icon:'🪵',desc:'Tratamientos sobre estructuras de madera'},
@@ -48,28 +48,12 @@ function syncPayload(){
  }
  return clone;
 }
-// IndexedDB es el almacén PRINCIPAL para datos y fotos grandes.
-// No se vuelve a escribir el estado completo en localStorage (límite ~5 MB).
-// Se conserva intacta cualquier copia antigua de localStorage para recuperación.
-let durableSave=Promise.resolve();
-let durableSaveError=null;
 function save(){
- const copy=JSON.parse(JSON.stringify(state));
- durableSave=durableSave.catch(()=>{}).then(async()=>{
-  if(!window.MHSOffline?.saveState)throw Error('El almacenamiento IndexedDB no está disponible.');
-  await window.MHSOffline.saveState(copy);
-  const verified=await window.MHSOffline.loadState();
-  if(JSON.stringify(verified)!==JSON.stringify(copy))throw Error('No se pudo verificar el guardado local.');
-  durableSaveError=null;
-  // La sincronización solo recibe estados que YA están guardados y verificados.
-  window.HMSSupabasePilot?.onLocalSave?.(copy);
- }).catch(e=>{
-  durableSaveError=e;
-  console.error('Guardado local NO confirmado',e);
-  toast('ERROR guardando datos. Exporta copia JSON y no cierres la app.');
-  // Los botones existentes no esperan Promises: registrar el fallo sin rechazos sin gestionar.
- });
- return durableSave;
+ try{db.set(state)}catch(e){console.warn('localStorage lleno; se mantiene copia IndexedDB',e);toast('Guardado local alternativo activado')}
+ if(window.MHSOffline){
+  MHSOffline.saveState(state).catch(()=>{});
+  MHSOffline.enqueue('state_snapshot',syncPayload(),{dedupeKey:'state-main'}).catch(()=>{});
+ }
 }
 function getCurrent(){return state.services.find(x=>x.id===currentId)}
 function commonNew(type){return{id:uid(),type,number:'',date:nowDate(),status:'BORRADOR',client:{name:'',address:'',contact:'',phone:'',email:''},technician:'',notes:'',data:{},photos:{before:'',after:''},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}}
@@ -84,9 +68,9 @@ function renderDashboard(){currentId=null;setActiveNav('dashboard');const counts
 <section class="hero hero-dashboard"><div><span class="eyebrow">PANEL OPERATIVO</span><h1>Todos los servicios, un solo flujo</h1><p>Cada tratamiento mantiene su propia lógica, compartiendo clientes, documentos, facturación y certificado final.</p></div><div class="hero-actions"><button class="btn secondary" id="quickExport">Exportar copia</button></div></section>
 <div class="service-switch">${Object.entries(typeMeta).map(([k,m])=>`<button class="service-tile service-${k}" data-open-module="${k}"><span class="service-ico">${m.icon}</span><span><b>${m.name}</b><small>${m.desc}</small></span><em>${counts[k]}</em></button>`).join('')}</div>
 <section class="flow-card"><div class="flow-title"><b>Flujo general</b><span>adaptado a la lógica de cada servicio</span></div><div class="flow-steps"><div><i>1</i><b>Hoja de servicio</b><small>Registro técnico y evidencias.</small></div><span>→</span><div><i>2</i><b>Documentación / entrega</b><small>Fotos, partes y albaranes.</small></div><span>→</span><div><i>3</i><b>Facturación</b><small>Según modalidad del servicio.</small></div><span>→</span><div><i>4</i><b>Certificado final</b><small>Cierre documental.</small></div></div></section>
-<div class="dashboard-grid"><section class="list-card"><div class="list-head"><div><h2>Hojas recientes</h2><small class="muted">Últimas actividades</small></div><span class="tag">${state.services.length} total</span></div><div class="service-list">${state.services.length?state.services.slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,12).map(s=>row(s)).join(''):'<div class="empty">Aún no hay hojas. Elige un servicio arriba para crear la primera.</div>'}</div></section><aside class="summary-card"><h2>Resumen de servicios</h2><div class="summary-list">${Object.entries(typeMeta).map(([k,m])=>`<button data-open-module="${k}"><span>${m.icon} ${m.name}</span><b>${counts[k]}</b></button>`).join('')}</div></aside></div>`;
+<div class="dashboard-grid"><section class="list-card"><div class="list-head"><div><h2>Hojas recientes</h2><small class="muted">Últimas actividades del piloto</small></div><span class="tag">${state.services.length} total</span></div><div class="service-list">${state.services.length?state.services.slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,12).map(s=>row(s)).join(''):'<div class="empty">Aún no hay hojas. Elige un servicio arriba para crear la primera.</div>'}</div></section><aside class="summary-card"><h2>Estado del piloto</h2><div class="summary-list">${Object.entries(typeMeta).map(([k,m])=>`<button data-open-module="${k}"><span>${m.icon} ${m.name}</span><b>${counts[k]}</b></button>`).join('')}</div><div class="notice"><b>Prueba segura:</b> trabaja en una rama independiente y exporta una copia JSON al terminar cada sesión.</div></aside></div>`;
 app.querySelectorAll('[data-open-module]').forEach(b=>b.onclick=()=>{setActiveNav(b.dataset.openModule);renderModuleOverview(b.dataset.openModule)});bindServiceRows();$('#quickExport').onclick=exportData;}
-function moduleFeatures(type){const f={madera:['Fotos antes / después','Modalidades: m², presupuesto, Pack y combinada','Certificado final'],ddd:['Hoja independiente','Parte / conformidad','Facturación provisional configurable'],autoclave:['Comparación con albarán del cliente','Medición propia y 4 decimales sin redondear','m³ a facturar = nuestra medición','Albarán transportista'],mobiliario:['Fotos antes / después','Control por piezas / unidades','Entrega y recogida'],termitas:['Expediente de 3 años','Seguimiento por visitas','Contacto con colonia según evidencias','Plan económico por hitos']} ;return f[type]||[]}
+function moduleFeatures(type){const f={madera:['Fotos antes / después','Modalidades: m², presupuesto, Pack y combinada','Certificado final'],ddd:['Hoja independiente','Parte / conformidad','Facturación provisional configurable'],autoclave:['Comparación con albarán del cliente','Medición propia y 4 decimales sin redondear','m³ a facturar = nuestra medición','Albarán transportista'],mobiliario:['Fotos antes / después','Medidas y volumen para espacio en autoclave','Entrega y recogida'],termitas:['Expediente de 3 años','Seguimiento por visitas','Contacto con colonia según evidencias','Plan económico por hitos']} ;return f[type]||[]}
 function renderModuleOverview(type){currentId=null;const m=typeMeta[type],items=state.services.filter(s=>s.type===type).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));app.innerHTML=`<section class="module-hero module-hero-${type}"><div class="module-hero-icon">${m.icon}</div><div><span class="eyebrow">MÓDULO</span><h1>${m.name}</h1><p>${m.desc}</p></div><button class="btn" id="moduleNew">+ Nueva hoja</button></section><div class="module-overview-grid"><section class="panel"><h2>Qué incluye</h2><div class="feature-list">${moduleFeatures(type).map(x=>`<div>✓ ${esc(x)}</div>`).join('')}</div></section><section class="panel"><h2>Flujo</h2><div class="mini-flow"><span>Hoja</span><b>→</b><span>Documentación</span><b>→</b><span>Facturación</span><b>→</b><span>Certificado</span></div></section></div><section class="list-card"><div class="list-head"><h2>Expedientes / hojas de ${m.name}</h2><span class="tag">${items.length}</span></div><div class="service-list">${items.length?items.map(s=>row(s)).join(''):'<div class="empty">No hay hojas todavía en este módulo.</div>'}</div></section>`;$('#moduleNew').onclick=()=>createService(type);bindServiceRows()}
 function renderArea(area){const labels={albaranes:'Albaranes',facturacion:'Facturación',documentos:'Documentos'},title=labels[area]||area;let eligible=state.services;if(area==='albaranes')eligible=eligible.filter(s=>['autoclave','mobiliario'].includes(s.type));app.innerHTML=`<section class="hero"><div><span class="eyebrow">ÁREA COMÚN</span><h1>${title}</h1><p>Acceso central a los documentos generados desde cada hoja de servicio.</p></div></section><section class="list-card"><div class="list-head"><h2>Servicios disponibles</h2><span class="tag">${eligible.length}</span></div><div class="service-list">${eligible.length?eligible.map(s=>`<div class="service-row area-row"><div><b>${typeMeta[s.type].icon} ${esc(typeMeta[s.type].name)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div><small>${esc(s.date||'')}</small></div><div><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div></div><button class="btn secondary" data-area-open="${s.id}">Abrir hoja</button></div>`).join(''):'<div class="empty">Todavía no hay documentos disponibles.</div>'}</div></section>`;app.querySelectorAll('[data-area-open]').forEach(b=>b.onclick=()=>{currentId=b.dataset.areaOpen;setActiveNav(getCurrent()?.type);renderService()})}
 function row(s){const m=typeMeta[s.type]||{};return `<div class="service-row"><div><b>${m.icon||''} ${esc(m.name||s.type)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div class="hide-mobile"><small>${esc(s.date||'')}</small><br>${esc(s.client?.address||'')}</div><div class="hide-tablet"><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div class="hide-tablet"><small>${new Date(s.updatedAt).toLocaleDateString('es-ES')}</small></div><div class="row-actions"><button class="btn secondary" data-edit="${s.id}">Abrir</button><button class="btn red" data-delete-service="${s.id}">Eliminar</button></div></div>`}
@@ -130,15 +114,207 @@ function bindMaderaBilling(){document.querySelectorAll('[name=billModeChoice]').
 function showMaderaBilling(mode){$('#billM2Box').classList.toggle('hidden',!['m2','combinada'].includes(mode));$('#billBudgetBox').classList.toggle('hidden',mode!=='presupuesto');$('#billPackBox').classList.toggle('hidden',!['pack','combinada'].includes(mode))}
 function calcMadera(){const mode=$('#billMode')?.value||'m2',area=num($('#woodArea')?.value),pm=num($('#billPriceM2')?.value),other=num($('#billOther')?.value)||0,bud=num($('#billBudgetAmount')?.value),pack=num($('#billPackAmount')?.value)||0,vat=num($('#billVat')?.value)||0;let base=0;if(mode==='m2')base=(Number.isFinite(area)&&Number.isFinite(pm)?area*pm:0)+other;if(mode==='presupuesto')base=Number.isFinite(bud)?bud:0;if(mode==='pack')base=pack;if(mode==='combinada')base=(Number.isFinite(area)&&Number.isFinite(pm)?area*pm:0)+pack+other;const iva=base*vat/100,total=base+iva;if($('#mBase')){$('#mBase').textContent=money(base);$('#mVat').textContent=money(iva);$('#mTotal').textContent=money(total)}return{mode,base,iva,total}}
 
-function renderAutoclave(s){const d=s.data||{};app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Autoclave')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Albarán del cliente · referencia comparativa</h3><div class="inner"><div class="grid">${field('clientDeliveryNo','N.º albarán cliente (opcional)',d.clientDeliveryNo||'')}${field('declaredM3','m³ declarados por cliente (opcional)',d.declaredM3||'','text','inputmode="decimal"')}<div class="field full"><div class="notice">El albarán del cliente sirve como referencia. Los m³ a facturar se basan siempre en nuestra medición.</div></div></div></div></section><section class="section"><h3>3. Medición propia y control de volumen</h3><div class="inner"><div class="grid">${field('checkedM3','Nuestra medición (m³) *',d.checkedM3||'','text','inputmode="decimal"')}${select('checkMethod','Forma de comprobación',['Medición directa','Cubicación','Recuento y dimensiones','Otro'],d.checkMethod||'Medición directa')}</div><div class="kpis"><div class="kpi"><span>Cliente</span><strong id="aDeclared">—</strong></div><div class="kpi"><span>Nuestra medición</span><strong id="aChecked">—</strong></div><div class="kpi"><span>Diferencia</span><strong id="aDiff">—</strong></div><div class="kpi"><span>Diferencia %</span><strong id="aPct">—</strong></div></div></div></section><section class="section"><h3>4. m³ a facturar</h3><div class="inner"><div class="grid">${field('billM3','m³ a facturar',d.billM3||'','text','readonly class="readonly"')} ${field('autoPriceM3','Precio €/m³',d.autoPriceM3||'','text','inputmode="decimal"')}</div><div class="notice"><b>Regla fija:</b> m³ a facturar = nuestra medición, truncada a 4 decimales, sin redondear.</div><div class="totals"><div class="total"><span>Base estimada</span><strong id="aBase">—</strong></div><div class="total"><span>IVA 21 %</span><strong id="aVat">—</strong></div><div class="total"><span>Total</span><strong id="aTotal">—</strong></div></div></div></section>${photoSection(s)}${textarea('autoObs','Observaciones',d.autoObs||'')}</div></div>`;bindCommon(s,collectAutoclave,{transport:true});['declaredM3','checkedM3','autoPriceM3'].forEach(id=>$('#'+id)?.addEventListener('input',calcAutoclave));$('#checkedM3')?.addEventListener('blur',()=>{const n=trunc4(num($('#checkedM3').value));if(Number.isFinite(n))$('#checkedM3').value=n.toFixed(4);calcAutoclave()});$('#declaredM3')?.addEventListener('blur',()=>{const n=trunc4(num($('#declaredM3').value));if(Number.isFinite(n))$('#declaredM3').value=n.toFixed(4);calcAutoclave()});calcAutoclave()}
-function collectAutoclave(s){commonCollect(s);const d=s.data=s.data||{};['clientDeliveryNo','declaredM3','checkedM3','checkMethod','autoPriceM3','autoObs'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});const b=trunc4(num(d.checkedM3));d.billM3=Number.isFinite(b)?b.toFixed(4):'';calcAutoclave()}
-function calcAutoclave(){const a=trunc4(num($('#declaredM3')?.value)),b=trunc4(num($('#checkedM3')?.value)),diff=Number.isFinite(a)&&Number.isFinite(b)?trunc4(b-a):NaN,pct=Number.isFinite(diff)&&a!==0?trunc4(diff/a*100):NaN,price=num($('#autoPriceM3')?.value);if($('#billM3'))$('#billM3').value=Number.isFinite(b)?fmt4(b):'';if($('#aDeclared')){$('#aDeclared').textContent=Number.isFinite(a)?fmt4(a)+' m³':'—';$('#aChecked').textContent=Number.isFinite(b)?fmt4(b)+' m³':'—';$('#aDiff').textContent=Number.isFinite(diff)?fmt4(diff)+' m³':'—';$('#aPct').textContent=Number.isFinite(pct)?fmt4(pct)+' %':'—'}const base=Number.isFinite(b)&&Number.isFinite(price)?b*price:0,iva=base*.21;if($('#aBase')){$('#aBase').textContent=money(base);$('#aVat').textContent=money(iva);$('#aTotal').textContent=money(base+iva)}return{a,b,diff,pct,base}}
+// v54.1: cálculo decimal exacto con BigInt; truncado SOLO al mostrar los cuatro decimales.
+function autoDecimal(value){
+ const s=String(value??'').trim().replace(',','.');
+ if(!/^\d+(?:\.\d+)?$/.test(s))return null;
+ const parts=s.split('.');return {n:BigInt(parts[0]+(parts[1]||'')),scale:(parts[1]||'').length};
+}
+function autoVolume(row){
+ const values=[row.units,row.length,row.width,row.thickness].map(autoDecimal);
+ if(values.some(x=>!x))return null;
+ if(values[0].scale!==0||values.some(x=>x.n<=0n))return null;
+ return values.reduce((r,x)=>({n:r.n*x.n,scale:r.scale+x.scale}),{n:1n,scale:0});
+}
+function autoSum(volumes){
+ const scale=Math.max(0,...volumes.map(x=>x.scale));
+ return {n:volumes.reduce((sum,v)=>sum+v.n*10n**BigInt(scale-v.scale),0n),scale};
+}
+function autoFour(v){
+ if(!v)return '';
+ const n=v.n*10000n/10n**BigInt(v.scale);
+ return (n/10000n).toString()+'.'+(n%10000n).toString().padStart(4,'0');
+}
+function autoRowsFromUI(){return [...document.querySelectorAll('#autoMeasureBody tr')].map(tr=>({
+ concept:tr.querySelector('[data-measure="concept"]').value,
+ units:tr.querySelector('[data-measure="units"]').value,
+ length:tr.querySelector('[data-measure="length"]').value,
+ width:tr.querySelector('[data-measure="width"]').value,
+ thickness:tr.querySelector('[data-measure="thickness"]').value
+}));}
+function autoMeasureRow(row={}){
+ const keys=['concept','units','length','width','thickness'];
+ const labels=['Concepto','Unidades','Largo (m)','Ancho (m)','Grosor (m)'];
+ return `<tr>${keys.map((key,i)=>`<td><input aria-label="${labels[i]}" data-measure="${key}" value="${esc(row[key]??'')}" type="text" ${i?'inputmode="decimal"':''} autocomplete="off"></td>`).join('')}<td class="auto-volume" aria-label="Volumen en metros cúbicos">—</td><td><button type="button" class="btn secondary auto-remove" aria-label="Eliminar fila de medición">×</button></td></tr>`;
+}
+function autoAddRow(row={}){const body=$('#autoMeasureBody');if(!body)return;body.insertAdjacentHTML('beforeend',autoMeasureRow(row));calcAutoclave()}
+function renderAutoclave(s){
+ const d=s.data||{};
+ app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Autoclave')}<div class="sheet-body">${commonSection(s)}
+ <section class="section"><h3>2. Albarán del cliente · referencia comparativa</h3><div class="inner"><div class="grid">${field('clientDeliveryNo','N.º albarán cliente (opcional)',d.clientDeliveryNo||'')}${field('declaredM3','m³ declarados por cliente (opcional)',d.declaredM3||'','text','inputmode="decimal"')}<div class="field full"><div class="notice">El albarán del cliente sirve como referencia. Los m³ a facturar se basan siempre en nuestra medición.</div></div></div></div></section>
+ <section class="section"><h3>3. Medición propia y control de volumen</h3><div class="inner">
+ <div class="auto-table-scroll"><table class="auto-measure-table"><thead><tr><th>Concepto</th><th>Unidades</th><th>Largo (m)</th><th>Ancho (m)</th><th>Grosor (m)</th><th>Volumen (m³)</th><th></th></tr></thead><tbody id="autoMeasureBody">${(Array.isArray(d.autoMeasurements)&&d.autoMeasurements.length?d.autoMeasurements:[{}]).map(autoMeasureRow).join('')}</tbody><tfoot><tr><th colspan="5" scope="row">TOTAL m³</th><td id="autoMeasureTotal">0,0000</td><td></td></tr></tfoot></table></div>
+ <div class="auto-measure-actions"><button type="button" class="btn secondary" id="autoAddMeasure">+ Añadir fila</button><small>Volumen = unidades × largo × ancho × grosor. Se muestran 4 decimales truncados, sin redondear.</small></div>
+ <div class="grid">${field('checkedM3','Nuestra medición total (m³)',d.checkedM3||'','text','readonly class="readonly"')}${select('checkMethod','Forma de comprobación',['Medición directa','Cubicación','Recuento y dimensiones','Otro'],d.checkMethod||'Medición directa')}</div>
+ <div class="notice warn" id="autoIncompleteNotice" hidden>Hay filas incompletas o con medidas no válidas: no se incluyen en el total. Comprueba unidades enteras y dimensiones positivas.</div>
+ <div class="notice" id="autoLegacyNotice" hidden>Esta hoja tenía una medición manual anterior. Se conserva hasta que completes una fila de medidas válida.</div>
+ <div class="kpis"><div class="kpi"><span>Cliente</span><strong id="aDeclared">—</strong></div><div class="kpi"><span>Nuestra medición</span><strong id="aChecked">—</strong></div><div class="kpi"><span>Diferencia</span><strong id="aDiff">—</strong></div><div class="kpi"><span>Diferencia %</span><strong id="aPct">—</strong></div></div></div></section>
+ <section class="section"><h3>4. m³ a facturar</h3><div class="inner"><div class="grid">${field('billM3','m³ a facturar',d.billM3||'','text','readonly class="readonly"')}${field('autoPriceM3','Precio €/m³',d.autoPriceM3||'','text','inputmode="decimal"')}</div><div class="notice"><b>Regla fija:</b> m³ a facturar = nuestra medición, truncada a 4 decimales, sin redondear.</div><div class="totals"><div class="total"><span>Base estimada</span><strong id="aBase">—</strong></div><div class="total"><span>IVA 21 %</span><strong id="aVat">—</strong></div><div class="total"><span>Total</span><strong id="aTotal">—</strong></div></div></div></section>${photoSection(s)}${textarea('autoObs','Observaciones',d.autoObs||'')}</div></div>`;
+ // Guardamos el valor anterior solo para compatibilidad con hojas antiguas.
+ $('#checkedM3').dataset.legacy=d.checkedM3||'';
+ bindCommon(s,collectAutoclave,{transport:true});
+ $('#autoAddMeasure').onclick=()=>autoAddRow();
+ $('#autoMeasureBody').addEventListener('input',calcAutoclave);
+ $('#autoMeasureBody').addEventListener('click',e=>{const btn=e.target.closest('.auto-remove');if(!btn)return;btn.closest('tr').remove();calcAutoclave()});
+ ['declaredM3','autoPriceM3'].forEach(id=>$('#'+id)?.addEventListener('input',calcAutoclave));
+ $('#declaredM3')?.addEventListener('blur',()=>{const n=trunc4(num($('#declaredM3').value));if(Number.isFinite(n))$('#declaredM3').value=n.toFixed(4);calcAutoclave()});
+ calcAutoclave();
+}
+function collectAutoclave(s){
+ commonCollect(s);const d=s.data=s.data||{};
+ ['clientDeliveryNo','declaredM3','checkMethod','autoPriceM3','autoObs'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});
+ d.autoMeasurements=autoRowsFromUI();
+ calcAutoclave();
+ d.checkedM3=$('#checkedM3').value;
+ d.billM3=$('#billM3').value.replace(',','.');
+}
+function calcAutoclave(){
+ const rows=autoRowsFromUI(),volumes=[];
+ document.querySelectorAll('#autoMeasureBody tr').forEach((tr,i)=>{
+  const volume=autoVolume(rows[i]);if(volume)volumes.push(volume);
+  tr.querySelector('.auto-volume').textContent=volume?autoFour(volume).replace('.',','):'—';
+ });
+ const legacy=$('#checkedM3')?.dataset.legacy||'';
+ const total=volumes.length?autoFour(autoSum(volumes)):'';
+ const incomplete=rows.some(row=>Object.values(row).some(v=>String(v).trim())&&!autoVolume(row));
+ if($('#autoIncompleteNotice'))$('#autoIncompleteNotice').hidden=!incomplete;
+ const checked=total||(Number.isFinite(num(legacy))?autoFour(autoDecimal(legacy)):''),b=num(checked);
+ if($('#checkedM3'))$('#checkedM3').value=checked.replace('.',',');
+ if($('#autoMeasureTotal'))$('#autoMeasureTotal').textContent=total?total.replace('.',','):'0,0000';
+ if($('#autoLegacyNotice'))$('#autoLegacyNotice').hidden=!!total||!legacy;
+ const a=trunc4(num($('#declaredM3')?.value)),diff=Number.isFinite(a)&&Number.isFinite(b)?trunc4(b-a):NaN,pct=Number.isFinite(diff)&&a!==0?trunc4(diff/a*100):NaN,price=num($('#autoPriceM3')?.value);
+ if($('#billM3'))$('#billM3').value=Number.isFinite(b)?checked.replace('.',','):'';
+ if($('#aDeclared')){$('#aDeclared').textContent=Number.isFinite(a)?fmt4(a)+' m³':'—';$('#aChecked').textContent=Number.isFinite(b)?checked.replace('.',',')+' m³':'—';$('#aDiff').textContent=Number.isFinite(diff)?fmt4(diff)+' m³':'—';$('#aPct').textContent=Number.isFinite(pct)?fmt4(pct)+' %':'—'}
+ const base=Number.isFinite(b)&&Number.isFinite(price)?b*price:0,iva=base*.21;
+ if($('#aBase')){$('#aBase').textContent=money(base);$('#aVat').textContent=money(iva);$('#aTotal').textContent=money(base+iva)}
+ return {a,b,diff,pct,base};
+}
 
 function renderDDD(s){const d=s.data||{};app.innerHTML=toolbar(s)+`<div class="sheet">${commonHeader(s,'DDD')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Actuación DDD</h3><div class="inner"><div class="grid">${select('dddType','Tipo de actuación',['Desinsectación','Desratización','Desinfección','Inspección / seguimiento','Combinada'],d.dddType||'Desinsectación')}${field('dddTarget','Plaga / objetivo',d.dddTarget||'')}${field('dddProduct','Producto',d.dddProduct||'')}${field('dddDose','Dosis / cantidad aplicada',d.dddDose||'')}${textarea('dddAreas','Zonas tratadas',d.dddAreas||'')}${textarea('dddObs','Observaciones y recomendaciones',d.dddObs||'')}</div></div></section>${photoSection(s)}<section class="section"><h3>4. Facturación DDD · provisional</h3><div class="inner"><div class="notice warn">DDD es una hoja independiente. Hasta que definamos contigo su forma exacta de cobro, este piloto permite registrar una referencia e importe manual sin imponer reglas.</div><div class="grid">${field('dddBillRef','Referencia presupuesto / factura',d.dddBillRef||'')}${field('dddBillAmount','Importe base (€)',d.dddBillAmount||'','text','inputmode="decimal"')}</div></div></section></div></div>`;bindCommon(s,collectDDD)}
 function collectDDD(s){commonCollect(s);const d=s.data=s.data||{};['dddType','dddTarget','dddProduct','dddDose','dddAreas','dddObs','dddBillRef','dddBillAmount'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value})}
 
-function renderMobiliario(s){const d=s.data||{};app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Mobiliario')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Piezas y tratamiento</h3><div class="inner"><div class="grid">${field('furnQty','N.º de piezas',d.furnQty||'')}${field('furnDesc','Descripción de mobiliario',d.furnDesc||'')}${select('furnTreatment','Tratamiento realizado',['AUTOCLAVE','INSITU GEL'],['AUTOCLAVE','INSITU GEL'].includes(d.furnTreatment)?d.furnTreatment:'AUTOCLAVE')}${field('furnCondition','Estado / incidencias',d.furnCondition||'')}${textarea('furnObs','Observaciones',d.furnObs||'')}</div></div></section><section class="section"><h3>Aviso sobre mobiliario barnizado y acabados</h3><div class="inner"><div class="notice warn"><b>Importante:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</div></div></section>${photoSection(s)}<section class="section"><h3>4. Facturación Mobiliario</h3><div class="inner"><div class="grid">${select('furnBillMode','Modalidad',['Por unidades','Según presupuesto','Importe manual'],d.furnBillMode||'Por unidades')}${field('furnUnitPrice','Precio por unidad / importe base (€)',d.furnUnitPrice||'','text','inputmode="decimal"')}${field('furnBudgetRef','Referencia presupuesto',d.furnBudgetRef||'')}</div></div></section></div></div>`;bindCommon(s,collectMobiliario,{transport:true})}
-function collectMobiliario(s){commonCollect(s);const d=s.data=s.data||{};['furnQty','furnDesc','furnTreatment','furnCondition','furnObs','furnBillMode','furnUnitPrice','furnBudgetRef'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value})}
+// Mobiliario: medidas para capacidad del autoclave, NUNCA para calcular el precio.
+// Cada pieza conserva sus propias medidas y una fotografía independiente.
+function furnLegacyPrice(d){
+ const n=num(d.furnUnitPrice);if(!Number.isFinite(n))return '';
+ const q=num(d.furnQty);
+ return String(d.furnBillMode==='Por unidades'&&Number.isFinite(q)?Math.round(n*q*100)/100:n);
+}
+function furnRows(d){
+ if(Array.isArray(d.furnItems)){
+  const rows=d.furnItems.map(x=>({id:x.id||uid(),concept:String(x.concept??''),units:String(x.units??''),length:String(x.length??''),width:String(x.width??''),thickness:String(x.thickness??''),price:String(x.price??''),discount:String(x.discount??'0'),vat:String(x.vat??'21')}));
+  if(d.furnPriceMode!=='unit')rows.forEach(r=>{const qty=num(r.units),old=num(r.price);if(Number.isFinite(old)&&Number.isFinite(qty)&&qty>0&&r.price.trim())r.price=String(Math.round(old/qty*1000000)/1000000)});
+  // Una hoja antigua con precio general conserva el importe en su primer mueble.
+  if(rows.length&&!rows.some(r=>r.price.trim())&&d.furnUnitPrice!==undefined&&d.furnUnitPrice!=='')rows[0].price=String((Number(num(furnLegacyPrice(d)))||0)/(Number(num(rows[0].units))||1));
+  return rows;
+ }
+ if(d.furnDesc||d.furnQty||d.furnUnitPrice)return [{id:uid(),concept:String(d.furnDesc||''),units:String(d.furnQty||''),length:'',width:'',thickness:'',price:String((Number(num(furnLegacyPrice(d)))||0)/(Number(num(d.furnQty))||1)),discount:'0',vat:'21'}];
+ return [];
+}
+function furnInvoiceLines(d){
+ const rows=Array.isArray(d?.furnItems)?furnRows(d):furnRows(d);
+ return rows.filter(r=>r.concept||r.units||r.price).map((r,i)=>{
+  const quantity=num(r.units),price=num(r.price),discount=num(r.discount),vat=num(r.vat);
+  const q=Number.isFinite(quantity)&&quantity>0?quantity:0;
+  const unit=Number.isFinite(price)&&price>=0?price:0;
+  const disc=Number.isFinite(discount)&&discount>=0&&discount<=100?discount:0;
+  const tax=Number.isFinite(vat)&&vat>=0&&vat<=100?vat:21;
+  const base=Math.round((q*unit*(1-disc/100)+Number.EPSILON)*100)/100;
+  const vatAmount=Math.round((base*tax/100+Number.EPSILON)*100)/100;
+  return {...r,quantity:q,unit,discount:disc,vat:tax,base,vatAmount,total:Math.round((base+vatAmount)*100)/100};
+ });
+}
+function furnMoneyBase(d){
+ return Math.round(furnInvoiceLines(d).reduce((sum,r)=>sum+r.base,0)*100)/100;
+}
+function furnInvoiceTotals(d){const lines=furnInvoiceLines(d);return {lines,base:Math.round(lines.reduce((a,r)=>a+r.base,0)*100)/100,vat:Math.round(lines.reduce((a,r)=>a+r.vatAmount,0)*100)/100,total:Math.round(lines.reduce((a,r)=>a+r.total,0)*100)/100}}
+function furnRowHTML(r={},s){
+ const id=r.id||uid(),keys=['concept','units','length','width','thickness','price'],labels=['Concepto','Unidades','Largo (m)','Ancho (m)','Grosor (m)','Precio por mueble (€)'];
+ const src=s.photos?.['furn_'+id];
+ return `<div class="furn-item" data-furn-id="${esc(id)}"><div class="auto-table-scroll"><table class="auto-measure-table"><thead><tr>${labels.slice(0,5).map(v=>`<th>${v}</th>`).join('')}<th>Volumen (m³)</th><th>${labels[5]}</th></tr></thead><tbody><tr>${keys.slice(0,5).map((k,i)=>`<td><input type="text" data-furn="${k}" aria-label="${labels[i]}" value="${esc(r[k]??'')}" ${i?'inputmode="decimal"':''} autocomplete="off"></td>`).join('')}<td class="furn-volume">—</td><td><input type="text" data-furn="price" aria-label="Precio unitario manual del mueble en euros" inputmode="decimal" value="${esc(r.price||'')}" autocomplete="off"></td></tr><tr><td colspan="7"><div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:10px"><label>Descuento (%) <input type="text" data-furn="discount" inputmode="decimal" value="${esc(r.discount??'0')}"></label><label>IVA (%) <input type="text" data-furn="vat" inputmode="decimal" value="${esc(r.vat??'21')}"></label><div><b>Total del mueble (IVA incluido)</b><div class="furn-line-total">0,00 €</div></div></div></td></tr></tbody></table></div><div class="furn-photo-area"><div class="photo-box"><h4>Fotografía de este mueble</h4><div class="photo-preview furn-photo-preview">${src?`<img src="${src}" alt="Fotografía de ${esc(r.concept||'mueble')}">`:'Sin foto'}</div><label class="furn-photo-label">Elegir foto <input type="file" accept="image/*" data-furn-photo aria-label="Seleccionar fotografía de este mueble"></label><label class="furn-photo-label">Hacer foto con el móvil <input type="file" accept="image/*" capture="environment" data-furn-photo aria-label="Hacer fotografía de este mueble"></label><button type="button" class="btn secondary furn-delete-photo" ${src?'':'disabled'}>Eliminar foto</button></div><button type="button" class="btn secondary furn-remove">Eliminar mueble</button></div></div>`;
+}
+function furnUIRows(){return [...document.querySelectorAll('.furn-item')].map(el=>({id:el.dataset.furnId,...Object.fromEntries(['concept','units','length','width','thickness','price','discount','vat'].map(k=>[k,el.querySelector(`[data-furn="${k}"]`).value]))})).filter(r=>['concept','units','length','width','thickness','price'].some(k=>r[k].trim()));}
+function furnUpdate(){
+ let all=[],invalid=false,prices=0,priceInvalid=false;
+ document.querySelectorAll('.furn-item').forEach(el=>{
+  const r={};['concept','units','length','width','thickness','price','discount','vat'].forEach(k=>r[k]=el.querySelector(`[data-furn="${k}"]`).value);
+  const isActive=['concept','units','length','width','thickness'].some(k=>String(r[k]).trim());const volume=isActive?autoVolume(r):null;
+  if(isActive&&!volume)invalid=true;
+  if(volume)all.push(volume);
+  const p=num(r.price),q=num(r.units),discount=num(r.discount),vat=num(r.vat);if(r.price.trim()&&(!Number.isFinite(p)||p<0))priceInvalid=true;
+  if(!Number.isFinite(discount)||discount<0||discount>100||!Number.isFinite(vat)||vat<0||vat>100)priceInvalid=true;
+  const base=Number.isFinite(p)&&Number.isFinite(q)&&q>0&&Number.isFinite(discount)?Math.round(q*p*(1-discount/100)*100)/100:0;const tax=Number.isFinite(vat)?Math.round(base*vat)/100:0;prices+=base;el.querySelector('.furn-line-total').textContent=money(base+tax);
+  el.querySelector('.furn-volume').textContent=volume?autoFour(volume).replace('.',','):'—';
+ });
+ const sum=autoFour(autoSum(all)).replace('.',',');
+ $('#furnTotal').textContent=sum;
+ $('#furnInvalid').hidden=!invalid;
+ $('#furnVolumeNotice').textContent='Volumen para planificar el espacio en el autoclave: '+sum+' m³. No interviene en el precio.';
+ if($('#furnPriceTotal'))$('#furnPriceTotal').textContent=money(Math.round(prices*100)/100);
+ if($('#furnPriceInvalid'))$('#furnPriceInvalid').hidden=!priceInvalid;
+}
+function renderMobiliario(s){
+ const d=s.data||{},items=furnRows(d);const current=items.length?items:[{id:uid()}];
+ app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Mobiliario')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Muebles y espacio necesario en autoclave</h3><div class="inner"><div id="furnItemsBody">${current.map(r=>furnRowHTML(r,s)).join('')}</div><div class="auto-measure-actions"><button type="button" class="btn secondary" id="furnAdd">+ Añadir mueble</button><small>Un apartado de medidas y una fotografía por mueble.</small></div><div class="notice"><b>Volumen total: <span id="furnTotal">0,0000</span> m³</b><div id="furnVolumeNotice"></div></div><div class="notice" style="margin-top:9px"><b>Base de los muebles (sin IVA): <span id="furnPriceTotal">0,00 €</span></b><div>Precio manual por unidad × cantidad, aplicando descuento e IVA por cada mueble. El volumen no interviene en el precio.</div></div><div class="notice warn" id="furnPriceInvalid" hidden>Comprueba los precios, descuentos (0 a 100 %) e IVA (0 a 100 %).</div><div class="notice warn" id="furnInvalid" hidden>Hay medidas incompletas o no válidas: comprueba unidades enteras y dimensiones positivas.</div><div class="grid">${select('furnTreatment','Tratamiento realizado',['AUTOCLAVE','INSITU GEL'],['AUTOCLAVE','INSITU GEL'].includes(d.furnTreatment)?d.furnTreatment:'AUTOCLAVE')}${textarea('furnObs','Observaciones',d.furnObs||'')}</div></div></section><section class="section"><h3>Aviso sobre mobiliario barnizado y acabados</h3><div class="inner"><div class="notice warn"><b>Importante:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</div></div></section>${(s.photos?.before||s.photos?.after)?`<section class="section"><h3>Fotos conservadas de la hoja anterior</h3><div class="inner"><div class="photos">${photoBox('photoBefore','Foto ANTES',s.photos.before)}${photoBox('photoAfter','Foto DESPUÉS',s.photos.after)}</div></div></section>`:''}<section class="section"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="furnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Conjunto de muebles">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía del conjunto <input type="file" id="furnGroupPhoto" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="furnGroupCamera" accept="image/*" capture="environment"></label><button type="button" id="furnGroupRemove" class="btn secondary" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>${recoveredAttachmentsSection(s)}<section class="section"><h3>4. Facturación Mobiliario</h3><div class="inner"><div class="notice"><b>El precio unitario, el descuento y el IVA se introducen por mueble; la factura suma todas las líneas.</b> Los m³ no afectan a la facturación.</div><div class="grid">${field('furnBudgetRef','Referencia presupuesto',d.furnBudgetRef||'')}</div></div></section></div></div>`;
+ bindCommon(s,collectMobiliario,{transport:true});
+ $('#furnAdd').onclick=()=>{$('#furnItemsBody').insertAdjacentHTML('beforeend',furnRowHTML({id:uid()},s));furnUpdate()};
+ $('#furnItemsBody').addEventListener('input',e=>{if(e.target.matches('[data-furn]'))furnUpdate()});
+ $('#furnItemsBody').addEventListener('click',e=>{
+  const delPhoto=e.target.closest('.furn-delete-photo');
+  if(delPhoto){const el=delPhoto.closest('.furn-item'),key='furn_'+el.dataset.furnId;
+   if(!confirm('¿Eliminar la fotografía de este mueble?'))return;
+   s.photos=s.photos||{};delete s.photos[key];el.querySelector('.furn-photo-preview').textContent='Sin foto';
+   el.querySelectorAll('[data-furn-photo]').forEach(input=>input.value='');delPhoto.disabled=true;
+   collectMobiliario(s);save();toast('Fotografía eliminada');return;
+  }
+  if(!e.target.closest('.furn-remove'))return;
+  if(!confirm('¿Eliminar este mueble de la hoja?'))return;
+  const el=e.target.closest('.furn-item');if(s.photos)delete s.photos['furn_'+el.dataset.furnId];el.remove();furnUpdate();
+ });
+ $('#furnItemsBody').addEventListener('change',async e=>{
+  if(!e.target.matches('[data-furn-photo]'))return;
+  const input=e.target,file=input.files?.[0];if(!file)return;
+  const el=input.closest('.furn-item'),id=el.dataset.furnId;
+  try{
+   const data=await compressImage(file);s.photos=s.photos||{};s.photos['furn_'+id]=data;
+   collectMobiliario(s);save();
+   if(window.MHSOffline){
+    const blob=await(await fetch(data)).blob();const blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-furn-${id}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:'furn_'+id});
+    await MHSOffline.enqueue('photo',{serviceId:s.id,key:'furn_'+id,name:`${s.id}-furn-${id}.jpg`,type:'image/jpeg'},{dedupeKey:`photo-${s.id}-furn-${id}`,blobId});
+   }
+   el.querySelector('.furn-photo-preview').innerHTML=`<img src="${data}" alt="Fotografía del mueble">`;el.querySelector('.furn-delete-photo').disabled=false;
+   toast('Fotografía del mueble guardada');
+  }catch(err){alert('No se pudo guardar la fotografía: '+(err?.message||err))}
+ });
+ const saveGroup=async input=>{const file=input.files?.[0];if(!file)return;try{const data=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=data;collectMobiliario(s);save();$('#furnGroupPreview').innerHTML=`<img src="${data}" alt="Conjunto de muebles">`;$('#furnGroupRemove').disabled=false;toast('Foto del conjunto guardada')}catch(err){alert('No se pudo guardar la foto del conjunto: '+(err?.message||err))}};
+ $('#furnGroupPhoto').addEventListener('change',e=>saveGroup(e.target));
+ $('#furnGroupCamera').addEventListener('change',e=>saveGroup(e.target));
+ $('#furnGroupRemove').onclick=()=>{if(!confirm('¿Eliminar la foto del conjunto?'))return;delete s.photos.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').textContent='Sin foto del conjunto';$('#furnGroupRemove').disabled=true;$('#furnGroupPhoto').value='';$('#furnGroupCamera').value='';};
+ if($('#photoBefore'))bindPhoto('photoBefore',s,'before');
+ if($('#photoAfter'))bindPhoto('photoAfter',s,'after');
+ furnUpdate();
+}
+function collectMobiliario(s){
+ commonCollect(s);const d=s.data=s.data||{};
+ ['furnTreatment','furnObs','furnBudgetRef'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});
+ d.furnItems=furnUIRows();d.furnPriceMode='unit';
+ d.furnVolumeM3=autoFour(autoSum(d.furnItems.map(autoVolume).filter(Boolean)));
+ // Campos históricos para certificados y albaranes; NO se usan para calcular precios.
+ d.furnQty=String(d.furnItems.reduce((sum,r)=>sum+(Number.isInteger(num(r.units))&&num(r.units)>0?num(r.units):0),0));
+ d.furnDesc=d.furnItems.map(r=>r.concept.trim()).filter(Boolean).join(', ');
+ d.furnUnitPrice=String(furnMoneyBase(d)); // Compatibilidad con facturación y plantillas existentes.
+ d.furnBillMode='Importe manual';
+}
 
 
 function addYears(dateStr,years){if(!dateStr)return'';const [y,m,d]=dateStr.split('-').map(Number);if(!y||!m||!d)return'';const dt=new Date(Date.UTC(y+years,m-1,d));if(dt.getUTCMonth()!==m-1)dt.setUTCDate(0);return dt.toISOString().slice(0,10)}
@@ -162,7 +338,7 @@ function setupDeliverySignature(s){const t=s.data.transport=s.data.transport||{}
 function saveTransport(s,requireSignature=false){const t=s.data.transport=s.data.transport||{},canvas=$('#deliverySignature');t.number=$('#trNo').value;t.date=$('#trDate').value;t.destination=$('#trDestination').value;t.company=$('#trCompany').value;t.driver=$('#trDriver').value;t.plate=$('#trPlate').value;t.trailer=$('#trTrailer').value;t.packages=$('#trPackages').value;t.deliveryDescription=$('#trM3').value;t.notes=$('#trNotes').value;t.receiver=$('#trReceiver').value.trim();t.receiverRole=$('#trReceiverRole').value.trim();t.signDate=$('#trSignDate').value.trim();if(canvas?._mhsHasInk?.())t.signature=canvas._mhsData();if(requireSignature&&(!t.receiver||!t.signDate||!t.signature)){alert('Para guardar o imprimir cualquier albarán es obligatorio indicar quién recibe, la fecha/hora y su firma.');return false}s.updatedAt=new Date().toISOString();save();return true}
 function printTransport(s){const t=s.data.transport||{},qty=s.type==='autoclave'?`${fmt4(trunc4(num(s.data.checkedM3)))} m³`:esc(t.deliveryDescription||'');if(!t.receiver||!t.signDate||!t.signature){alert('El albarán necesita firma de recepción antes de imprimir.');return}printDoc('ALBARÁN DE ENTREGA',`<h2>${esc(typeMeta[s.type].name)}</h2><p><b>Albarán:</b> ${esc(t.number||'')} · <b>Fecha:</b> ${esc(t.date||'')}</p><p><b>Cliente:</b> ${esc(s.client.name)}<br><b>Destino:</b> ${esc(t.destination||'')}</p><p><b>Transportista:</b> ${esc(t.company||'')} · <b>Conductor:</b> ${esc(t.driver||'')} · <b>Matrícula:</b> ${esc(t.plate||'')}</p><div class="big">Entrega: ${qty}</div><p><b>Observaciones:</b><br>${esc(t.notes||'')}</p><p><b>Recibido por:</b> ${esc(t.receiver)} ${t.receiverRole?`· ${esc(t.receiverRole)}`:''}<br><b>Fecha/hora:</b> ${esc(t.signDate)}</p><p><img src="${t.signature}" alt="Firma recepción" style="max-width:320px;max-height:130px;border-bottom:1px solid #777"></p>${companyValidationHtml()}<div class="sign"><span>Firma / recepción</span><span>Firma empresa</span></div>`)}
 
-function openBilling(s){if(s.type==='madera'){const r=calcMaderaSafe(s);return printBillingPreview(s,r)}if(s.type==='autoclave'){const q=trunc4(num(s.data.checkedM3)),p=num(s.data.autoPriceM3),base=Number.isFinite(q)&&Number.isFinite(p)?q*p:0;return printBillingPreview(s,{base,iva:base*.21,total:base*1.21,concept:`Tratamiento Autoclave · ${fmt4(q)} m³ × ${Number.isFinite(p)?money(p):'—'}`})}if(s.type==='ddd'){const base=num(s.data.dddBillAmount)||0;return printBillingPreview(s,{base,iva:base*.21,total:base*1.21,concept:`Servicio DDD · ${s.data.dddBillRef||'importe manual'}`})}if(s.type==='mobiliario'){const qty=num(s.data.furnQty)||0,price=num(s.data.furnUnitPrice)||0,base=s.data.furnBillMode==='Por unidades'?qty*price:price;return printBillingPreview(s,{base,iva:base*.21,total:base*1.21,concept:`Mobiliario · ${s.data.furnBillMode||''}`})}if(s.type==='termitas'){return printTermiteBilling(s)}}
+function openBilling(s){if(s.type==='madera'){const r=calcMaderaSafe(s);return printBillingPreview(s,r)}if(s.type==='autoclave'){const q=trunc4(num(s.data.checkedM3)),p=num(s.data.autoPriceM3),base=Number.isFinite(q)&&Number.isFinite(p)?q*p:0;return printBillingPreview(s,{base,iva:base*.21,total:base*1.21,concept:`Tratamiento Autoclave · ${fmt4(q)} m³ × ${Number.isFinite(p)?money(p):'—'}`})}if(s.type==='ddd'){const base=num(s.data.dddBillAmount)||0;return printBillingPreview(s,{base,iva:base*.21,total:base*1.21,concept:`Servicio DDD · ${s.data.dddBillRef||'importe manual'}`})}if(s.type==='mobiliario'){const base=furnMoneyBase(s.data||{});return printBillingPreview(s,{base,iva:base*.21,total:base*1.21,concept:`Mobiliario · ${s.data.furnBillMode||''}`})}if(s.type==='termitas'){return printTermiteBilling(s)}}
 
 function printTermiteBilling(s){const d=s.data||{},sch=termiteSchedule({data:{...d,installationDate:d.termiteInstallationDate,contactDate:d.termiteContactDate}});if(sch.custom){return printDoc('PLAN DE FACTURACIÓN · TERMITAS',`<div class=\"draft\">BORRADOR</div><h2>${esc(s.client.name||'')}</h2><p><b>Plan personalizado</b><br>Presupuesto base: ${money(sch.base)} · IVA: ${money(sch.vat)} · Total: ${money(sch.total)}</p><p class=\"note\">${esc(d.termiteCustomBilling||'Sin calendario personalizado informado.')}</p>`)}const rows=sch.rows.map(r=>`<tr><td>${esc(r.concept)}</td><td>${esc(dateLabel(r.date))}</td><td>${r.pct.toLocaleString('es-ES',{maximumFractionDigits:2})}%</td><td>${money(r.amount)}</td><td>${esc(r.status)}</td></tr>`).join('');printDoc('PLAN DE FACTURACIÓN · TERMITAS',`<div class=\"draft\">BORRADOR</div><h2>${esc(s.client.name||'')}</h2><p><b>Expediente:</b> ${esc(s.number||'')} · <b>Instalación:</b> ${esc(dateLabel(d.termiteInstallationDate))}</p><table><tr><th>Hito</th><th>Fecha</th><th>%</th><th>Base</th><th>Estado</th></tr>${rows}</table><div class=\"tot\"><p>Base: <b>${money(sch.base)}</b></p><p>IVA: <b>${money(sch.vat)}</b></p><p>Total: <b>${money(sch.total)}</b></p></div><p class=\"note\">Plan particular: 60 % diseño/instalación, 25 % en el contacto real con la colonia y 15 % restante repartido en cuotas anuales pendientes hasta el 3.er aniversario.</p>`)}
 function calcMaderaSafe(s){const d=s.data||{},mode=d.billMode||'m2',area=num(d.woodArea),pm=num(d.billPriceM2),other=num(d.billOther)||0,bud=num(d.billBudgetAmount),pack=num(d.billPackAmount)||0,vat=num(d.billVat)||21;let base=0,concept='';if(mode==='m2'){base=(Number.isFinite(area)&&Number.isFinite(pm)?area*pm:0)+other;concept=`Aplicación de gel · ${area||0} m²`}if(mode==='presupuesto'){base=Number.isFinite(bud)?bud:0;concept=`Según presupuesto ${d.billBudgetRef||''}`}if(mode==='pack'){base=pack;concept='Pack Presupuesto'}if(mode==='combinada'){base=(Number.isFinite(area)&&Number.isFinite(pm)?area*pm:0)+pack+other;concept='Facturación combinada'}const iva=base*vat/100;return{base,iva,total:base+iva,concept,packNote:['pack','combinada'].includes(mode)}}
@@ -170,7 +346,7 @@ function printBillingPreview(s,r){printDoc('BORRADOR DE FACTURACIÓN',`<div clas
 function printCertificate(s){const certNo=serviceDocNo(s,'CER');let body=`<p><b>N.º certificado:</b> ${esc(certNo)}</p>`+`<h2>${esc(typeMeta[s.type].name)}</h2><p><b>Cliente:</b> ${esc(s.client.name)}<br><b>Dirección:</b> ${esc(s.client.address)}<br><b>Fecha:</b> ${esc(s.date)}<br><b>Técnico:</b> ${esc(s.technician||'')}</p>`;if(s.type==='autoclave')body+=`<p>Se certifica la realización del tratamiento en autoclave sobre un volumen comprobado de <b>${fmt4(trunc4(num(s.data.checkedM3)))} m³</b>.</p>`;if(s.type==='madera')body+=`<p>Se certifica el tratamiento de madera in situ: <b>${esc(s.data.woodTreatment||'')}</b>, superficie registrada: <b>${esc(s.data.woodArea||'—')} m²</b>, producto: <b>${esc(s.data.woodProduct||'—')}</b>.</p>`;if(s.type==='ddd')body+=`<p>Se certifica la actuación DDD: <b>${esc(s.data.dddType||'')}</b>, objetivo: <b>${esc(s.data.dddTarget||'—')}</b>, producto: <b>${esc(s.data.dddProduct||'—')}</b>.</p>`;if(s.type==='mobiliario')body+=`<p>Se certifica el tratamiento de mobiliario: <b>${esc(s.data.furnTreatment||'')}</b>, piezas: <b>${esc(s.data.furnQty||'—')}</b>.</p><p class="note"><b>Aviso sobre mobiliario barnizado y acabados:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</p>`;if(s.type==='termitas'){const end=addYears(s.data.termiteInstallationDate,3);if(!s.data.termiteInstallationDate||!s.data.termiteContactDate){alert('Para generar el certificado de Termitas deben constar instalación y contacto con colonia confirmado.');return}if(end&&nowDate()<end&&!confirm('Aún no se ha alcanzado el tercer aniversario. ¿Generar un certificado provisional?'))return;body+=`<p>Se certifica el seguimiento del tratamiento de Termitas iniciado el <b>${esc(dateLabel(s.data.termiteInstallationDate))}</b>, con contacto con colonia confirmado el <b>${esc(dateLabel(s.data.termiteContactDate))}</b>. El expediente registra <b>${(s.data.termiteVisits||[]).length}</b> hojas de seguimiento. Fecha prevista de finalización del tratamiento: <b>${esc(dateLabel(end))}</b>.</p>`}body+=companyValidationHtml();body+=`<div class="sign"><span>Director Técnico / empresa</span><span>Firma / conformidad cliente</span></div>`;printDoc('CERTIFICADO FINAL',body)}
 function printDoc(title,body){const c=state.company||{},w=window.open('','_blank');if(!w){alert('Permite ventanas emergentes para imprimir.');return}w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#203129;font-size:11pt}header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px}h1{color:#0f7a49;margin:0;font-size:21pt}h2{color:#27543d}.meta{font-size:9pt;color:#64776d}.big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}.sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}.sign span{border-top:1px solid #777;padding-top:6px;text-align:center}.draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}table{width:100%;border-collapse:collapse;margin:15px 0}th,td{border:1px solid #ccc;padding:9px;text-align:left}.tot{text-align:right;font-size:12pt}.note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}.company-validation{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:end;margin-top:28px;padding-top:12px;border-top:1px solid #d5ddd8}.company-validation>div{text-align:center}.doc-stamp-img{display:block;max-width:190px;max-height:95px;object-fit:contain;margin:6px auto}.company-validation small{display:block;color:#68766f;margin-top:4px}footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}</style></head><body><header><h1>${esc(title)}</h1><div class="meta">${esc(c.name||'Empresa')} · ${esc(c.taxId||'')} · ${esc(c.address||'')}</div></header>${body}<footer>Generado desde Mis Hojas de Servicio · v47 Migración</footer><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`);w.document.close()}
 
-function renderSettings(){const c=state.company||{};app.innerHTML=`<section class="hero"><div><h1>Datos de empresa</h1><p>Se usarán en albaranes, facturas y certificados.</p></div></section><div class="panel"><div class="settings-grid">${field('coName','Razón social / nombre',c.name||'')}${field('coTax','NIF/CIF',c.taxId||'')}${field('coAddress','Dirección',c.address||'')}${field('coPhone','Teléfono',c.phone||'')}${field('coEmail','Email',c.email||'')}${field('coReg','N.º registro / autorización (opcional)',c.registration||'')}</div><div class="cert-actions"><button class="btn" id="coSave">Guardar</button><button class="btn secondary" id="coBack">Volver</button><button class="btn red" id="exportBtn">Exportar copia JSON</button><label class="btn secondary import-label">Importar copia JSON<input id="importFile" type="file" accept="application/json" hidden></label><button class="btn blue" id="legacyImportBtn">Recuperar datos de la app anterior</button></div><p class="footer-note">Es recomendable conservar copias de seguridad.</p></div>`;$('#coSave').onclick=()=>{state.company={name:$('#coName').value,taxId:$('#coTax').value,address:$('#coAddress').value,phone:$('#coPhone').value,email:$('#coEmail').value,registration:$('#coReg').value};save();toast('Empresa guardada')};$('#coBack').onclick=renderDashboard;$('#exportBtn').onclick=exportData;$('#importFile').onchange=importData;$('#legacyImportBtn').onclick=()=>{localStorage.removeItem('mhs_legacy_recovery_v503');runLegacyMigration()}}
+function renderSettings(){const c=state.company||{};app.innerHTML=`<section class="hero"><div><h1>Datos de empresa</h1><p>Se usarán en albaranes, borradores y certificados del piloto.</p></div></section><div class="panel"><div class="settings-grid">${field('coName','Razón social / nombre',c.name||'')}${field('coTax','NIF/CIF',c.taxId||'')}${field('coAddress','Dirección',c.address||'')}${field('coPhone','Teléfono',c.phone||'')}${field('coEmail','Email',c.email||'')}${field('coReg','N.º registro / autorización (opcional)',c.registration||'')}</div><div class="cert-actions"><button class="btn" id="coSave">Guardar</button><button class="btn secondary" id="coBack">Volver</button><button class="btn red" id="exportBtn">Exportar copia JSON</button><label class="btn secondary import-label">Importar copia JSON<input id="importFile" type="file" accept="application/json" hidden></label><button class="btn blue" id="legacyImportBtn">Recuperar datos de la app anterior</button></div><p class="footer-note">Para pruebas reales conviene exportar una copia periódica. Esta versión piloto todavía no sustituye una copia de seguridad en servidor.</p></div>`;$('#coSave').onclick=()=>{state.company={name:$('#coName').value,taxId:$('#coTax').value,address:$('#coAddress').value,phone:$('#coPhone').value,email:$('#coEmail').value,registration:$('#coReg').value};save();toast('Empresa guardada')};$('#coBack').onclick=renderDashboard;$('#exportBtn').onclick=exportData;$('#importFile').onchange=importData;$('#legacyImportBtn').onclick=()=>{localStorage.removeItem('mhs_legacy_recovery_v503');runLegacyMigration()}}
 function importData(){const f=$('#importFile')?.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const parsed=JSON.parse(r.result);if(!parsed||!Array.isArray(parsed.services))throw new Error('Formato no válido');if(!confirm('¿Importar esta copia? Sustituirá los datos actuales de este piloto.'))return;state=parsed;save();toast('Copia importada');renderDashboard()}catch(e){alert('No se pudo importar la copia JSON.')}};r.readAsText(f)}
 function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`MHS-piloto-backup-${nowDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 
@@ -369,8 +545,27 @@ renderSettings=function(){const c=state.company||{};app.innerHTML=`<section clas
  if($('#coDirectorDelete'))$('#coDirectorDelete').onclick=()=>{pendingDirectorSignature='';$('#directorPreview').textContent='Sin firma'};
  $('#coSave').onclick=()=>{state.company={...state.company,name:$('#coName').value.trim(),commercialName:$('#coCommercial').value.trim(),taxId:$('#coTax').value.trim(),address:$('#coAddress').value.trim(),postalCode:$('#coPostal').value.trim(),province:$('#coProvince').value.trim(),phone:$('#coPhone').value.trim(),email:$('#coEmail').value.trim(),registration:$('#coReg').value.trim(),directorName:$('#coDirectorName').value.trim(),directorSurname:$('#coDirectorSurname').value.trim(),directorSignature:pendingDirectorSignature,seal:pendingSeal,logo:pendingLogo};state.numbering={...(state.numbering||{}),serviceNext:Math.max(1,Math.trunc(Number($('#serviceNext').value)||26001))};save();toast('Empresa, sello y firma guardados')};$('#coBack').onclick=renderDashboard;$('#exportBtn').onclick=exportData;$('#importFile').onchange=importData;$('#legacyImportBtn').onclick=()=>{localStorage.removeItem('mhs_legacy_recovery_v503');runLegacyMigration()};
 }
-function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentReceipt||{},kind=r.kind||'Hoja PDF';app.innerHTML=`<div class="toolbar"><button class="btn secondary" id="docBack">← Volver a hoja</button><button class="btn" id="docSave">Guardar documento</button><button class="btn blue" id="docPrint">Imprimir / PDF</button><button class="btn secondary" id="docShare">Compartir</button><button class="btn red" id="docDelete">Eliminar documento</button></div><div class="sheet"><div class="sheet-title"><div><h1>Hoja PDF / Albarán</h1><small>${esc(typeMeta[s.type].name)} · ${esc(s.number||'')}</small></div></div><div class="sheet-body"><section class="section"><h3>Tipo de documento</h3><div class="inner"><div class="grid">${select('docKind','Generar como',['Hoja PDF','Albarán'],kind)}${field('docNo','N.º documento',r.number||(kind==='Albarán'?serviceDocNo(s,'ALB'):serviceDocNo(s,'HS')),'text','readonly class=\"readonly\"')}${field('docDate','Fecha',r.date||s.date||nowDate(),'date')}${field('docNotes','Observaciones del documento',r.notes||'')}</div><div class="notice">La misma hoja sirve como PDF técnico o como albarán. Si eliges <b>Albarán</b>, la firma de recepción es obligatoria.</div></div></section><section class="section" id="receiptSection"><h3>Recepción · obligatoria para Albarán</h3><div class="inner"><div class="grid three">${field('docReceiver','Nombre de quien recibe',r.receiver||'')}${field('docRole','Empresa / función',r.receiverRole||'')}${field('docSignDate','Fecha / hora recepción',r.signDate||new Date().toLocaleString('es-ES'))}${field('docCarrier','Transportista / empresa (opcional)',r.carrier||'')}${field('docPlate','Matrícula (opcional)',r.plate||'')}</div><div class="field full"><label>Firma de recepción</label><canvas id="docSignature" width="700" height="220" class="signature-canvas"></canvas><div class="signature-actions"><button type="button" class="btn secondary" id="clearDocSignature">Borrar firma</button></div></div></div></section></div></div>`;
- $('#docBack').onclick=renderService;setupDocSignature(s);const show=()=>$('#receiptSection').classList.toggle('is-optional',$('#docKind').value!=='Albarán');$('#docKind').onchange=()=>{show();$('#docNo').value=$('#docKind').value==='Albarán'?serviceDocNo(s,'ALB'):serviceDocNo(s,'HS')};show();$('#docSave').onclick=()=>{if(collectServiceDocument(s,false)){toast('Documento guardado')}};$('#docPrint').onclick=()=>{if(collectServiceDocument(s,true))printServiceDocument(s)};$('#docShare').onclick=()=>{if(!collectServiceDocument(s,false))return;const r=s.data.documentReceipt||{};shareDocument({title:r.kind==='Albarán'?'Hoja de servicio / Albarán':'Hoja de servicio',text:`${r.kind} ${r.number||s.number} · ${s.client?.name||''} · ${typeMeta[s.type]?.name||s.type}`,filename:`${(r.number||s.number||'documento').replaceAll(' ','_')}.txt`})};$('#docDelete').onclick=()=>{const r=s.data.documentReceipt||{};if(!r.number&&!r.signature&&!r.notes&&!r.receiver){alert('No hay un documento guardado que eliminar.');return}if(!confirm(`¿Eliminar ${r.kind||'el documento'} ${r.number||''}? La hoja de servicio no se borrará.`))return;delete s.data.documentReceipt;s.updatedAt=new Date().toISOString();save();toast('Documento eliminado');renderService()};
+function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentReceipt||{},kind=r.kind||'Hoja PDF';app.innerHTML=`<div class="toolbar"><button class="btn secondary" id="docBack">← Volver a hoja</button><button class="btn" id="docSave">Guardar documento</button><button class="btn blue" id="docPrint">Imprimir / PDF</button><button class="btn secondary" id="docShare">Compartir</button><button class="btn red" id="docDelete">Eliminar documento</button></div><div class="sheet"><div class="sheet-title"><div><h1>Hoja PDF / Albarán</h1><small>${esc(typeMeta[s.type].name)} · ${esc(s.number||'')}</small></div></div><div class="sheet-body"><section class="section"><h3>Tipo de documento</h3><div class="inner"><div class="grid">${select('docKind','Generar como',['Hoja PDF','Albarán'],kind)}${field('docNo','N.º documento',r.number||(kind==='Albarán'?serviceDocNo(s,'ALB'):serviceDocNo(s,'HS')),'text','readonly class=\"readonly\"')}${field('docDate','Fecha',r.date||s.date||nowDate(),'date')}${field('docNotes','Observaciones del documento',r.notes||'')}</div><div class="notice">La misma hoja sirve como PDF técnico o como albarán. Si eliges <b>Albarán</b>, la firma de recepción es obligatoria.</div></div></section>${s.type==='mobiliario'?`<section class="section" id="docFurnGroupSection"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="docFurnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Foto del conjunto">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía de archivo <input type="file" id="docFurnGroupFile" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="docFurnGroupCamera" accept="image/*" capture="environment"></label><button type="button" class="btn secondary" id="docFurnGroupRemove" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>`:''}<section class="section" id="receiptSection"><h3>Recepción · obligatoria para Albarán</h3><div class="inner"><div class="grid three">${field('docReceiver','Nombre de quien recibe',r.receiver||'')}${field('docRole','Empresa / función',r.receiverRole||'')}${field('docSignDate','Fecha / hora recepción',r.signDate||new Date().toLocaleString('es-ES'))}${field('docCarrier','Transportista / empresa (opcional)',r.carrier||'')}${field('docPlate','Matrícula (opcional)',r.plate||'')}</div><div class="field full"><label>Firma de recepción</label><canvas id="docSignature" width="700" height="220" class="signature-canvas"></canvas><div class="signature-actions"><button type="button" class="btn secondary" id="clearDocSignature">Borrar firma</button></div></div></div></section></div></div>`;
+ $('#docBack').onclick=renderService;setupDocSignature(s);const show=()=>{const isDelivery=$('#docKind').value==='Albarán';$('#receiptSection').classList.toggle('is-optional',!isDelivery);if($('#docFurnGroupSection'))$('#docFurnGroupSection').hidden=!isDelivery};$('#docKind').onchange=()=>{show();$('#docNo').value=$('#docKind').value==='Albarán'?serviceDocNo(s,'ALB'):serviceDocNo(s,'HS')};show();
+ if(s.type==='mobiliario'){
+  const setPhoto=async input=>{
+   const file=input.files?.[0];if(!file)return;
+   try{const img=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=img;s.updatedAt=new Date().toISOString();save();
+    $('#docFurnGroupPreview').innerHTML=`<img src="${img}" alt="Foto del conjunto">`;
+    $('#docFurnGroupRemove').disabled=false;toast('Fotografía del conjunto guardada');
+   }catch(err){alert('No se pudo guardar la fotografía: '+(err?.message||err))}finally{input.value=''}
+  };
+  $('#docFurnGroupFile').onchange=e=>setPhoto(e.target);
+  $('#docFurnGroupCamera').onchange=e=>setPhoto(e.target);
+  $('#docFurnGroupRemove').onclick=()=>{
+   if(!confirm('¿Eliminar la fotografía del conjunto?'))return;
+   if(s.photos)delete s.photos.furnGroup;
+   s.updatedAt=new Date().toISOString();save();
+   $('#docFurnGroupPreview').textContent='Sin foto del conjunto';
+   $('#docFurnGroupRemove').disabled=true;
+  };
+ }
+ $('#docSave').onclick=()=>{if(collectServiceDocument(s,false)){toast('Documento guardado')}};$('#docPrint').onclick=()=>{if(collectServiceDocument(s,true))printServiceDocument(s)};$('#docShare').onclick=()=>{if(!collectServiceDocument(s,false))return;const r=s.data.documentReceipt||{};shareDocument({title:r.kind==='Albarán'?'Hoja de servicio / Albarán':'Hoja de servicio',text:`${r.kind} ${r.number||s.number} · ${s.client?.name||''} · ${typeMeta[s.type]?.name||s.type}`,filename:`${(r.number||s.number||'documento').replaceAll(' ','_')}.txt`})};$('#docDelete').onclick=()=>{const r=s.data.documentReceipt||{};if(!r.number&&!r.signature&&!r.notes&&!r.receiver){alert('No hay un documento guardado que eliminar.');return}if(!confirm(`¿Eliminar ${r.kind||'el documento'} ${r.number||''}? La hoja de servicio no se borrará.`))return;delete s.data.documentReceipt;s.updatedAt=new Date().toISOString();save();toast('Documento eliminado');renderService()};
 }
 function setupDocSignature(s){const r=s.data.documentReceipt=s.data.documentReceipt||{},canvas=$('#docSignature'),ctx=canvas.getContext('2d');ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#203129';let drawing=false,hasInk=false;const pos=e=>{const x=canvas.getBoundingClientRect(),p=e;return{x:(p.clientX-x.left)*canvas.width/x.width,y:(p.clientY-x.top)*canvas.height/x.height}};canvas.onpointerdown=e=>{drawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()};canvas.onpointermove=e=>{if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasInk=true;e.preventDefault()};window.addEventListener('pointerup',()=>drawing=false);if(r.signature){const im=new Image();im.onload=()=>{ctx.drawImage(im,0,0,canvas.width,canvas.height);hasInk=true};im.src=r.signature}$('#clearDocSignature').onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);hasInk=false;r.signature=''};canvas._hasInk=()=>hasInk;canvas._data=()=>canvas.toDataURL('image/png')}
 function collectServiceDocument(s,forPrint=false){const r=s.data.documentReceipt=s.data.documentReceipt||{},canvas=$('#docSignature');r.kind=$('#docKind').value;r.number=$('#docNo').value.trim();r.date=$('#docDate').value;r.notes=$('#docNotes').value.trim();r.receiver=$('#docReceiver').value.trim();r.receiverRole=$('#docRole').value.trim();r.signDate=$('#docSignDate').value.trim();r.carrier=$('#docCarrier').value.trim();r.plate=$('#docPlate').value.trim();if(canvas?._hasInk?.())r.signature=canvas._data();if(r.kind==='Albarán'&&(!r.receiver||!r.signDate||!r.signature)){alert('Para generar un Albarán debes indicar quién recibe, fecha/hora y firma de recepción.');return false}s.updatedAt=new Date().toISOString();save();return true}
@@ -391,146 +586,266 @@ function bindBudgetRows(){app.querySelectorAll('[data-edit-budget]').forEach(x=>
 function openBudgetForm(id=''){const old=state.budgets.find(b=>b.id===id),b=old||{id:uid(),date:nowDate(),number:budgetNumber(nowDate()),clientId:'',concept:'',base:'',vat:'21',status:'BORRADOR',notes:''};const opts=['<option value="">Selecciona cliente</option>',...state.clients.map(c=>`<option value="${c.id}" ${c.id===b.clientId?'selected':''}>${esc(c.name)}</option>`)].join('');app.innerHTML=`<section class="hero"><div><h1>${old?'Editar presupuesto':'Añadir presupuesto'}</h1><p>Los presupuestos no consumen numeración de servicio hasta que se convierten en un trabajo aceptado.</p></div></section><section class="panel"><div class="settings-grid">${field('budNo','N.º presupuesto',b.number,'text','readonly class="readonly"')}${field('budDate','Fecha',b.date,'date')}<div class="field"><label>Cliente</label><select id="budClient">${opts}</select></div>${field('budConcept','Concepto',b.concept)}${field('budBase','Base imponible (€)',b.base,'text','inputmode="decimal"')}${field('budVat','IVA (%)',b.vat,'text','inputmode="decimal"')}${select('budStatus','Estado',['BORRADOR','ENVIADO','ACEPTADO','RECHAZADO'],b.status||'BORRADOR')}${textarea('budNotes','Observaciones',b.notes||'')}</div><div class="totals"><div class="total"><span>Base</span><strong id="budBaseOut">—</strong></div><div class="total"><span>IVA</span><strong id="budVatOut">—</strong></div><div class="total"><span>Total</span><strong id="budTotalOut">—</strong></div></div><div class="cert-actions"><button class="btn" id="budSave">Guardar presupuesto</button><button class="btn secondary" id="budCancel">Cancelar</button>${old?'<button class="btn blue" id="budPrint">Imprimir / PDF</button><button class="btn secondary" id="budShare">Compartir</button>':''}</div></section>`;const calc=()=>{const base=num($('#budBase').value)||0,vat=num($('#budVat').value)||0;$('#budBaseOut').textContent=money(base);$('#budVatOut').textContent=money(base*vat/100);$('#budTotalOut').textContent=money(base*(1+vat/100))};$('#budBase').oninput=calc;$('#budVat').oninput=calc;$('#budDate').onchange=()=>{if(!old)$('#budNo').value=budgetNumber($('#budDate').value)};calc();$('#budSave').onclick=()=>{const base=num($('#budBase').value)||0,vat=num($('#budVat').value)||0,obj={...b,number:$('#budNo').value,date:$('#budDate').value,clientId:$('#budClient').value,concept:$('#budConcept').value.trim(),base,vat,status:$('#budStatus').value,notes:$('#budNotes').value.trim(),total:base*(1+vat/100),updatedAt:new Date().toISOString()};if(old)state.budgets=state.budgets.map(x=>x.id===obj.id?obj:x);else state.budgets.push(obj);save();toast('Presupuesto guardado');renderBudgets()};$('#budCancel').onclick=renderBudgets;if($('#budPrint'))$('#budPrint').onclick=()=>printBudget(state.budgets.find(x=>x.id===b.id)||b);if($('#budShare'))$('#budShare').onclick=()=>{const x=state.budgets.find(x=>x.id===b.id)||b,c=state.clients.find(c=>c.id===x.clientId);shareDocument({title:'Presupuesto',text:`Presupuesto ${x.number} · ${c?.name||''} · Total ${money(Number(x.total)||0)}`,filename:`${x.number}.txt`})}}
 function printBudget(b){if(!b)return;const c=state.clients.find(x=>x.id===b.clientId),base=Number(b.base)||0,vat=Number(b.vat)||0;printDoc('PRESUPUESTO',`${companyHeaderHtml()}<h2>${esc(c?.name||'Cliente')}</h2><p>${esc(c?.taxId||'')}<br>${esc([c?.address,c?.postalCode,c?.province].filter(Boolean).join(' · '))}</p><p><b>N.º:</b> ${esc(b.number)} · <b>Fecha:</b> ${esc(b.date)}</p><table><tr><th>Concepto</th><th>Base</th></tr><tr><td>${esc(b.concept||'Servicio')}</td><td>${money(base)}</td></tr></table><div class="tot"><p>Base: <b>${money(base)}</b></p><p>IVA ${vat}%: <b>${money(base*vat/100)}</b></p><p>Total: <b>${money(base*(1+vat/100))}</b></p></div>${b.notes?`<p class="note">${esc(b.notes)}</p>`:''}${companyValidationHtml()}`)}
 
-printDoc=function(title,body){
- const c=state.company||{};
- // Impresión directa en el documento actual, sin ventanas emergentes ni iframe.
- document.getElementById('mhs-print-preview')?.remove();
- document.getElementById('mhs-print-style')?.remove();
- const style=document.createElement('style');style.id='mhs-print-style';
- style.textContent=`
- #mhs-print-preview{position:fixed;inset:0;z-index:2147483640;background:#e9eeeb;overflow:auto;color:#203129;font:11pt Arial,sans-serif}
- #mhs-print-preview *{box-sizing:border-box}
- #mhs-print-preview .mhs-print-toolbar{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #cbd5cf}
- #mhs-print-preview .mhs-print-toolbar button{cursor:pointer;padding:10px 16px;border:0;border-radius:7px;background:#087849;color:#fff;font-weight:700}
- #mhs-print-preview .mhs-print-toolbar button:last-child{background:#dce5e0;color:#203129}
- #mhs-print-preview .mhs-print-page{width:210mm;min-height:297mm;margin:16px auto;background:#fff;padding:14mm;box-shadow:0 3px 24px #0002}
- #mhs-print-preview header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px;display:flex;gap:12px;align-items:center}
- #mhs-print-preview header img{max-width:100px;max-height:60px;object-fit:contain}
- #mhs-print-preview h1{color:#0f7a49;margin:0;font-size:21pt}
- #mhs-print-preview h2{color:#27543d}
- #mhs-print-preview .meta{font-size:9pt;color:#64776d}
- #mhs-print-preview .company-doc-head{display:flex;gap:12px;align-items:center;border:1px solid #d5e1db;border-radius:8px;padding:10px;margin:8px 0 18px}
- #mhs-print-preview .company-doc-head img{max-width:100px;max-height:60px}
- #mhs-print-preview .company-doc-head small{display:block;color:#64776d}
- #mhs-print-preview .big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}
- #mhs-print-preview .sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}
- #mhs-print-preview .sign span{border-top:1px solid #777;padding-top:6px;text-align:center}
- #mhs-print-preview .draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}
- #mhs-print-preview table{width:100%;border-collapse:collapse;margin:15px 0}
- #mhs-print-preview th,#mhs-print-preview td{border:1px solid #ccc;padding:9px;text-align:left}
- #mhs-print-preview .tot{text-align:right;font-size:12pt}
- #mhs-print-preview .note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}
- #mhs-print-preview footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}
- #mhs-print-preview img{max-width:100%;object-fit:contain}
- @media(max-width:900px){#mhs-print-preview .mhs-print-page{width:calc(100% - 16px);min-height:auto;padding:16px}}
- @page{size:A4;margin:0}
- @media print{
- html,body{margin:0!important;padding:0!important;background:#fff!important}
- body > *:not(#mhs-print-preview){display:none!important}
- #mhs-print-preview{position:static!important;inset:auto!important;overflow:visible!important;background:#fff!important;z-index:auto!important}
- #mhs-print-preview .mhs-print-toolbar{display:none!important}
- #mhs-print-preview .mhs-print-page{width:210mm!important;min-height:297mm!important;margin:0!important;padding:14mm!important;box-shadow:none!important;break-after:auto!important}
- }`;
- document.head.appendChild(style);
- const overlay=document.createElement('section');overlay.id='mhs-print-preview';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-label','Vista previa PDF');
- overlay.innerHTML=`<div class="mhs-print-toolbar"><strong>Vista previa · ${esc(title)}</strong><div><button type="button" id="mhs-print-now">Imprimir / Guardar PDF</button> <button type="button" id="mhs-print-close">Cerrar</button></div></div><main class="mhs-print-page"><header>${c.logo?`<img src="${c.logo}" alt="Logo">`:''}<div><h1>${esc(title)}</h1><div class="meta">${esc(c.commercialName||c.name||'Empresa')}${c.name&&c.commercialName?` · ${esc(c.name)}`:''}${c.taxId?` · ${esc(c.taxId)}`:''}${c.registration?` · ROESB ${esc(c.registration)}`:''}<br>${esc([c.address,c.postalCode,c.province].filter(Boolean).join(' · '))}</div></div></header>${body}<footer>Generado desde MHSARBIDE</footer></main>`;
- document.body.appendChild(overlay);
- const close=()=>{overlay.remove();style.remove()};
- overlay.querySelector('#mhs-print-close').onclick=close;
- overlay.querySelector('#mhs-print-now').onclick=()=>{try{window.focus();window.print()}catch(e){alert('Error al imprimir: '+e.message)}};
-};
+printDoc=function(title,body){const c=state.company||{},w=window.open('','_blank');if(!w){alert('Permite ventanas emergentes para imprimir.');return}w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Arial,sans-serif;color:#203129;font-size:11pt;background:#e9ecea;padding:24px}.a4-page{position:relative;width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:14mm;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow:hidden}header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px;display:flex;gap:12px;align-items:center}header img{max-width:100px;max-height:60px;object-fit:contain}h1{color:#0f7a49;margin:0;font-size:21pt}h2{color:#27543d}.meta{font-size:9pt;color:#64776d}.company-doc-head{display:flex;gap:12px;align-items:center;border:1px solid #d5e1db;border-radius:8px;padding:10px;margin:8px 0 18px}.company-doc-head img{max-width:100px;max-height:60px}.company-doc-head small{display:block;color:#64776d}.big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}.sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}.sign span{border-top:1px solid #777;padding-top:6px;text-align:center}.draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}table{width:100%;border-collapse:collapse;margin:15px 0}th,td{border:1px solid #ccc;padding:9px;text-align:left}.tot{text-align:right;font-size:12pt}.note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}.preview-actions{position:sticky;top:12px;z-index:2;display:flex;justify-content:center;gap:8px;margin-bottom:14px}.preview-actions button{border:0;border-radius:9px;padding:10px 14px;background:#0f7a49;color:#fff;font-weight:700;cursor:pointer}.preview-actions button.secondary{background:#fff;color:#0f7a49;border:1px solid #9fc7b0}@media(max-width:900px){body{padding:12px}.a4-page{width:100%;min-height:auto;padding:clamp(14px,4vw,32px);box-shadow:0 4px 18px rgba(0,0,0,.14)}h1{font-size:18pt}.sign{grid-template-columns:1fr;gap:18px;margin-top:36px}}@media print{body{background:#fff;padding:0}.preview-actions{display:none!important}.a4-page{width:210mm;min-height:297mm;margin:0;box-shadow:none;padding:14mm;overflow:visible}}</style></head><body><div class="preview-actions"><button onclick="window.print()">Imprimir / Guardar PDF</button><button class="secondary" onclick="window.close()">Cerrar</button></div><main class="a4-page"><header>${c.logo?`<img src="${c.logo}" alt="Logo">`:''}<div><h1>${esc(title)}</h1><div class="meta">${esc(c.commercialName||c.name||'Empresa')}${c.name&&c.commercialName?` · ${esc(c.name)}`:''}${c.taxId?` · ${esc(c.taxId)}`:''}${c.registration?` · ROESB ${esc(c.registration)}`:''}<br>${esc([c.address,c.postalCode,c.province].filter(Boolean).join(' · '))}</div></div></header>${body}<footer>Generado desde Mis Hojas de Servicio · Piloto v51</footer></main></body></html>`);w.document.close()};
 
-// Esperar la carga local ANTES de que Supabase pueda leer el estado.
-// Los datos existentes en ambas ubicaciones se conservan; nunca eliminar el respaldo anterior.
-const appReady=(async()=>{
- if(!window.MHSOffline?.loadState)return;
- const stored=await window.MHSOffline.loadState();
- if(stored&&Array.isArray(stored.services)){
-  const merged={...stored};
-  for(const key of ['services','clients','products','invoices','budgets']){
-   const fromIdb=Array.isArray(stored[key])?stored[key]:[];
-   const fromOld=Array.isArray(state[key])?state[key]:[];
-   const byId=new Map(fromIdb.filter(x=>x?.id!=null).map(x=>[String(x.id),x]));
-   for(const row of fromOld){
-    if(row?.id==null){fromIdb.push(row);continue;}
-    const old=byId.get(String(row.id));
-    if(!old){byId.set(String(row.id),row);continue;}
-    if((Date.parse(row.updatedAt)||0)>(Date.parse(old.updatedAt)||0))byId.set(String(row.id),row);
-   }
-   merged[key]=[...byId.values()];
-  }
-  merged.company={...(state.company||{}),...(stored.company||{})};
-  merged.numbering={...(state.numbering||{}),...(stored.numbering||{})};
-  state=merged;
-  await window.MHSOffline.saveState(state);
- }else if(state.services?.length||state.clients?.length||state.products?.length||
-     state.invoices?.length||state.budgets?.length||Object.values(state.company||{}).some(Boolean)){
-  // Primera migración: comprobar que la copia vieja quedó en IndexedDB.
-  await window.MHSOffline.saveState(state);
-  const confirmed=await window.MHSOffline.loadState();
-  if(JSON.stringify(confirmed)!==JSON.stringify(state))throw Error('No se pudo verificar la migración local.');
- }
- renderDashboard();
-})().catch(e=>{
- durableSaveError=e;
- console.error('No se pudo inicializar IndexedDB',e);
- alert('NO SE HA CONFIRMADO EL ALMACENAMIENTO LOCAL. No guardes ni sincronices. Exporta una copia JSON antes de cerrar.');
- throw e;
-});
+if(window.MHSOffline){
+ MHSOffline.loadState().then(saved=>{if(saved&&Array.isArray(saved.services)){const localStamp=Math.max(0,...(state.services||[]).map(x=>Date.parse(x.updatedAt)||0));const idbStamp=Math.max(0,...saved.services.map(x=>Date.parse(x.updatedAt)||0));if(idbStamp>localStamp){state=saved;try{db.set(state)}catch{};renderDashboard()}}}).catch(()=>{});
+}
 window.MHSApp={
- ready:appReady,
  getState:()=>JSON.parse(JSON.stringify(state)),
  applyRemoteState:async(remote,{source='remote'}={})=>{
   if(!remote||!Array.isArray(remote.services))return false;
-  const own=JSON.parse(JSON.stringify(state));
-  const joined={...remote};
-  for(const key of ['services','clients','products','invoices','budgets']){
-   const local=Array.isArray(own[key])?own[key]:[];
-   const incoming=Array.isArray(remote[key])?remote[key]:[];
-   const ids=new Map(incoming.filter(x=>x?.id!=null).map(x=>[String(x.id),x]));
-   const combined=[...incoming];
-   for(const item of local){
-    if(item?.id==null){combined.push(item);continue;}
-    const found=ids.get(String(item.id));
-    if(!found){combined.push(item);continue;}
-    // A newer local record may not yet be in Supabase; never overwrite it silently.
-    const localTime=Date.parse(item.updatedAt||'')||0;
-    const remoteTime=Date.parse(found.updatedAt||'')||0;
-    if(localTime>remoteTime){
-     const index=combined.indexOf(found);
-     if(index>=0)combined[index]=item;
-     ids.set(String(item.id),item);
-     continue;
-    }
-    // Preserve local photographs and attachments that the remote copy omitted.
-    if(key==='services'){
-     const i=combined.indexOf(found);
-     const amended={...found, photos:{...(item.photos||{}),...(found.photos||{})}};
-     const byAtt=new Map((item.attachments||[]).filter(a=>a?.id).map(a=>[String(a.id),a]));
-     for(const a of found.attachments||[])if(a?.id)byAtt.set(String(a.id),{...(byAtt.get(String(a.id))||{}),...a});
-     amended.attachments=[...byAtt.values()];
-     if(i>=0)combined[i]=amended;
-    }
-   }
-   joined[key]=combined;
-  }
-  joined.company={...(own.company||{}),...(remote.company||{})};
-  joined.numbering={...(own.numbering||{}),...(remote.numbering||{})};
-  // No escribir estados grandes en localStorage: esa era la causa del QuotaExceededError.
-  await appReady;
-  await durableSave;
-  if(durableSaveError)throw Error('Existe un guardado local sin confirmar. No se aplican datos remotos.');
-  if(!window.MHSOffline?.saveState)throw Error('IndexedDB no disponible: no se aplican datos remotos.');
-  await window.MHSOffline.saveState(joined);
-  const check=await window.MHSOffline.loadState();
-  if(JSON.stringify(check)!==JSON.stringify(joined))throw Error('No se ha verificado la copia remota; no se aplica.');
-  state=joined;
+  state=remote;
+  try{db.set(state)}catch(e){console.warn('No se pudo actualizar localStorage',e)}
+  if(window.MHSOffline)await MHSOffline.saveState(state).catch(()=>{});
   renderDashboard();
+  if(source==='cloudflare')toast('Datos actualizados desde Cloudflare');
   return true;
-
  }
 };
 window.dispatchEvent(new CustomEvent('mhs-app-ready'));
 renderDashboard();
 // v54 piloto: no importar automaticamente datos de otras versiones.
+
+/* Integración controlada con las seis maquetas PDF de referencia aprobadas.
+ * Las plantillas PDF originales no se modifican. Las imágenes aquí usadas son
+ * copias de trabajo vaciadas de sus datos ficticios, nunca modelos rediseñados.
+ */
+const APPROVED_DOCS={
+ autoclave:{sheet:'AUTOCLAVE_HOJA_SERVICIO_APROBADA.png',delivery:'AUTOCLAVE_ALBARAN_APROBADO.png',invoice:'AUTOCLAVE_FACTURA_APROBADA.png'},
+ mobiliario:{sheet:'MOBILIARIO_HOJA_SERVICIO_REFERENCIA.png',delivery:'MOBILIARIO_ALBARAN_REFERENCIA.png',invoice:'MOBILIARIO_FACTURA_REFERENCIA.png'}
+};
+const apDate=d=>{let a=String(d||'').slice(0,10).split('-');return a.length===3&&a[0].length===4?`${a[2]}/${a[1]}/${a[0]}`:String(d||'')};
+const apSafe=v=>String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
+const apMoney=v=>Number(v||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2});
+const ap4=v=>Number.isFinite(num(v))?fmt4(num(v)):'0,0000';
+const apClient=s=>{const cat=(state.clients||[]).find(x=>String(x.name||'').trim().toLowerCase()===String(s.client?.name||'').trim().toLowerCase())||{};const own=s.client||{};return {...cat,...Object.fromEntries(Object.entries(own).filter(([k,v])=>String(v??'').trim()!=='')),name:own.name||cat.name||''}};
+function apPreview(filename,fields,{title='',draft=false,media=[],readable=false}={}){
+ const el=(x,y,value,width=110,size=7,style='')=>{
+  let v=String(value??'').trim();if(!v)return '';
+  const desired=readable?Math.min(10,Math.max(8.3,size+1.8)):size;
+  // Evitar que la negrita desborde su casilla cuando los datos sean largos.
+  const fit=readable?Math.max(6.5,Math.min(desired,width/(Math.max(v.length,1)*0.56))):desired;
+  return `<div class="ap-field" style="left:${(x/595.276*100).toFixed(5)}%;top:${(y/841.89*100).toFixed(5)}%;width:${(width/595.276*100).toFixed(5)}%;font-size:${fit.toFixed(2)}pt;${readable?'font-weight:700;':''}${style}">${apSafe(v)}</div>`;
+ };
+ const pages=(fields.length&&Array.isArray(fields[0])&&Array.isArray(fields[0][0]))?fields:[fields];
+ const url=apSafe(new URL('approved-backgrounds/'+filename,location.href).href);
+ const mediaImg=m=>{const inset=1.5;return `<img class="ap-media" alt="Fotografía del mueble" src="${m.src}" style="left:${((m.x+inset)/595.276*100).toFixed(5)}%;top:${((m.y+inset)/841.89*100).toFixed(5)}%;width:${((m.w-2*inset)/595.276*100).toFixed(5)}%;height:${((m.h-2*inset)/841.89*100).toFixed(5)}%">`};
+ const content=pages.map((fs,pageIndex)=>`<main class="ap-sheet"><img class="ap-template" alt="Modelo aprobado" src="${url}">${fs.map(f=>el(...f)).join('')}${media.filter(m=>(m.page===undefined||m.page===pageIndex)&&/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(m.src||'')).map(mediaImg).join('')}${draft?'<div class="ap-watermark">BORRADOR</div>':''}</main>`).join('');
+ const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${apSafe(title)}</title><style>
+ @page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,Helvetica,sans-serif}body{background:#d7dedb;padding:10px}
+ .ap-sheet{width:min(210mm,100%);aspect-ratio:595.276/841.89;position:relative;margin:0 auto;background:white;box-shadow:0 4px 17px #0003;overflow:hidden}
+ .ap-sheet+.ap-sheet{margin-top:12px}.ap-template{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
+ .ap-field{position:absolute;color:#101610;line-height:1.12;white-space:nowrap;overflow:hidden;font-weight:400}
+ .ap-media{position:absolute;object-fit:contain;object-position:center center;display:block;background:white;border:0}.ap-watermark{position:absolute;top:46%;left:25%;transform:rotate(-25deg);font-size:30pt;font-weight:800;color:#b22;opacity:.25}
+ @media print{body{padding:0;background:white}.ap-sheet{width:210mm;height:297mm;box-shadow:none;break-after:page}.ap-sheet+.ap-sheet{margin-top:0}.ap-sheet:last-child{break-after:auto}.ap-template{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+ </style></head><body>${content}</body></html>`;
+ const old=document.getElementById('mhsApprovedOverlay');if(old)old.remove();
+ const overlay=document.createElement('div');overlay.id='mhsApprovedOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-label','Vista previa sobre diseño aprobado');overlay.style.cssText='position:fixed;inset:0;z-index:999999;background:rgba(10,25,18,.83);display:flex;flex-direction:column;gap:8px;padding:12px';
+ const bar=document.createElement('div');bar.style.cssText='display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap';
+ const msg=document.createElement('span');msg.textContent='Modelo aprobado · datos de la hoja';msg.style.cssText='color:white;margin-right:auto;font-weight:600';
+ const btn=document.createElement('button');btn.className='btn blue';btn.textContent='Imprimir / Guardar PDF';btn.disabled=true;
+ const close=document.createElement('button');close.className='btn secondary';close.textContent='Cerrar vista previa';
+ const iframe=document.createElement('iframe');iframe.title='Documento con diseño aprobado';iframe.style.cssText='flex:1;min-height:0;width:100%;border:0;background:white;border-radius:6px';
+ bar.append(msg,btn,close);overlay.append(bar,iframe);document.body.appendChild(overlay);
+ iframe.onload=()=>{const images=[...iframe.contentDocument.images];const ready=images.every(i=>i.complete&&i.naturalWidth>0);btn.disabled=!ready;if(!ready)msg.textContent='Error al cargar la plantilla aprobada; no imprimir.'};iframe.srcdoc=html;
+ btn.onclick=()=>{try{iframe.contentWindow.focus();iframe.contentWindow.print()}catch(err){alert('Error de impresión: '+err.message)}};
+ close.onclick=()=>overlay.remove();overlay.addEventListener('keydown',e=>{if(e.key==='Escape')overlay.remove()});close.focus();
+}
+function apRows(s){const d=s.data||{};if(s.type==='autoclave')return (d.autoMeasurements||[]).filter(r=>Object.values(r||{}).some(v=>String(v??'').trim()));return Array.isArray(d.furnItems)?d.furnItems.filter(r=>r.concept||r.units||r.length||r.width||r.thickness).map(r=>({...r,condition:'',notes:''})):(d.furnDesc?[{concept:d.furnDesc,units:d.furnQty||1,condition:d.furnCondition||'',notes:d.furnObs||''}]:[])}
+function apD(s,kind,forTransport=false){
+ const type=s.type;const d=s.data||{},c=apClient(s),r=d.documentReceipt||{},t=d.transport||{};
+ const fields=[];const add=(x,y,v,w=120,z=7,style='')=>fields.push([x,y,v,w,z,style]);
+ const date=apDate(kind==='delivery'?(forTransport?(t.date||r.date||s.date):(r.date||t.date||s.date)):(r.date||s.date));const suggested=kind==='delivery'?(forTransport?(t.number||r.number):(r.number||t.number)):(r.number||s.number);const number=kind==='delivery'&&(!suggested||/^HS\s*\d/i.test(suggested))?serviceDocNo(s,'ALB'):(suggested||'');
+ 
+ if(kind==='sheet'&&type==='autoclave'){
+  add(497,74,number,63,7);add(487,96,date,67,7);
+  add(125,176,c.name,120);add(294,176,c.taxId||c.cif,140);add(495,176,c.contact,67);
+  add(68,193,c.address,160);add(327,194,[c.postalCode,c.province].filter(Boolean).join(' - '),145);
+  add(64,210,c.phone,165);add(285,210,c.email,240);
+  add(60,274,d.autoSpecies||'',78);add(215,274,d.autoMoisture||'',35);add(326,274,d.autoUseClass||'',35);
+  const rows=apRows(s);
+  rows.slice(0,4).forEach((row,i)=>{const y=316+i*18.1;let u=num(row.units??row.unidades),a=num(row.length??row.largo),b=num(row.width??row.ancho),g=num(row.thickness??row.grosor);const v=Number.isFinite(u*a*b*g)?fmt4(u*a*b*g):'';add(35,y,Number.isFinite(u)?String(u):'',33);add(99,y,Number.isFinite(a)?Number(a).toFixed(3).replace('.',','):'',49);add(164,y,Number.isFinite(b)?Number(b).toFixed(3).replace('.',','):'',49);add(228,y,Number.isFinite(g)?Number(g).toFixed(3).replace('.',','):'',50);add(288,y,v,52)});
+  add(20,393,'VOLUMEN TOTAL TRATADO: '+ap4(d.checkedM3)+' m³',330,8.1,'font-weight:700');
+  add(423,273,d.autoStartTime||'',55);add(452,290,d.autoEndTime||'',60);
+  add(520,341,d.autoVacuumStart||'',43);add(520,356,d.autoVacuumConstant||'',43);add(529,371,d.autoVacuumSpray||'',35);add(529,386,d.autoVacuumReduction||'',35);add(529,400,d.autoDryTime||'',35);
+  add(240,453,d.autoProduct||'',105);add(269,513,d.clientDeliveryNo||'',70);add(260,530,apDate(d.autoEntryDate||''),96);add(298,551,d.autoExitDeliveryNo||'',54);add(253,563,apDate(d.autoExitDate||''),86);
+  add(17,619,d.autoObs||s.notes||'',337,7);add(65,707,state.company?.directorName||'',145);add(90,730,state.company?.directorLicense||'',115);
+ } else if(kind==='sheet'&&type==='mobiliario'){
+  add(496,57,number,70);add(474,78,date,75);add(156,161,c.name,116);add(330,161,c.taxId,93);add(488,161,c.contact,95);add(84,180,c.address,183);add(369,180,[c.postalCode,c.province].filter(Boolean).join(' / '),188);add(80,200,c.phone,164);add(320,200,c.email,240);
+  const rows=apRows(s);rows.slice(0,6).forEach((row,i)=>{const y=288+i*19;add(26,y,row.concept,172);add(213,y,row.units,36);add(256,y,row.condition,50);add(311,y,row.notes,83)});
+  add(488,261,apDate(d.furnPickupDate),70);add(488,279,apDate(d.furnDeliveryDate),70);
+  // Las únicas casillas del modelo son Desinsectación y Otros.
+  // No imprimir marcas genéricas encima del encabezado TRATAMIENTO.
+  const treat=String(d.furnTreatment||'').trim().toLowerCase();
+  if(treat==='desinsectación'||treat==='desinsectacion')add(416,345,'X',9,7);
+  else if(treat==='otros')add(416,369,'X',9,7);
+  add(415,529,d.furnCondition||'',150);add(26,623,d.furnObs||s.notes||'',540);add(89,706,state.company?.directorName||'',180);
+  // Solo en los huecos de OBSERVACIONES del modelo aprobado; no se rediseña la hoja.
+  const piece=rows[0];if(piece){const m3=autoVolume(piece);const dims=[piece.length,piece.width,piece.thickness].map(x=>String(x||'').trim()).join(' × ');
+   add(26,636,'Medidas (largo × ancho × grosor): '+dims+' m | Volumen: '+(m3?autoFour(m3).replace('.',','):'—')+' m³',525,8.2);
+   add(26,647,'Precio por unidad: '+(Number.isFinite(num(piece.price))?apMoney(num(piece.price))+' €':'Sin indicar')+' | Base total hoja: '+apMoney(furnMoneyBase(s.data))+' €',525,8.2);
+  }
+ } else if(kind==='delivery'&&type==='autoclave'){
+  add(500,81,number,74);add(506,95,date,73);add(122,153,c.name,177);add(348,153,c.address,229);add(69,171,c.phone,101);add(226,171,c.email,178);add(452,171,c.contact,115);
+  const rows=apRows(s);
+  rows.slice(0,7).forEach((v,i)=>{const y=248+i*15.8;add(27,y,v.concept||'',112);add(148,y,v.units||'',30);add(186,y,v.length||'',43);add(234,y,v.width||'',43);add(285,y,v.thickness||'',38);add(339,y,d.autoMoisture||'',45);add(395,y,d.autoUseClass||'',55);add(456,y,v.notes||'',123,6.3)});
+  add(275,375,'Tratamiento de madera en autoclave',270);add(323,389,d.autoStartTime||'',80);add(519,389,d.autoEndTime||'',55);add(311,406,d.autoProduct||'',165);add(333,422,d.autoUseClass||'',160);add(234,473,d.autoObs||s.notes||r.notes||'',330);
+  add(118,548,t.company||r.carrier||'',180);add(106,566,t.plate||r.plate||'',135);add(348,566,t.driver||r.receiver||'',165);add(53,583,t.driverId||'',115);
+ } else if(kind==='delivery'&&type==='mobiliario'){
+  add(467,86,number,108);add(496,99,date,75);add(147,159,c.name,189);add(403,159,c.address,174);add(80,179,c.phone,118);add(254,179,c.email,154);add(473,179,c.contact,99);
+  apRows(s).slice(0,7).forEach((v,i)=>{const y=256+i*17.3;add(27,y,v.concept,220);add(270,y,v.units,55);add(331,y,v.condition,50);add(389,y,v.notes,183)});
+  // Los valores comienzan después de las etiquetas impresas en el modelo aprobado.
+  add(333,392,'Tratamiento de mobiliario',217,7.0);
+  add(365,408,apDate(d.furnPickupDate),175,7.2);
+  add(406,423,apDate(d.furnDeliveryDate),132,7.2);
+  add(335,439,d.furnTreatment,208,7.2);
+  add(264,489,d.furnObs||s.notes||r.notes||'',298,7.2);
+  // Albarán: conjunto de muebles, sin precios; los m³ son únicamente información logística.
+  const volume=autoSum(apRows(s).map(autoVolume).filter(Boolean));
+  add(264,507,'Volumen de los muebles de esta página: '+autoFour(volume).replace('.',',')+' m³',295,7.1);
+  add(132,562,t.company||r.carrier||'',180);add(124,580,t.plate||r.plate||'',130);add(371,580,t.driver||r.receiver||'',186);
+ }
+ return fields;
+}
+function apInvoice(s,invoice=null,results=null){
+ const d=s.data||{},type=s.type,c=(invoice?.clientId?(state.clients||[]).find(x=>x.id===invoice.clientId):null)||apClient(s),r=results||{};
+ const pages=[],add=(fields,x,y,v,w=120,z=8)=>fields.push([x,y,v,w,z]);
+ const invNo=invoice?.number||serviceDocNo(s,'FRA'),date=apDate(invoice?.date||s.date);
+ const furniture=type==='mobiliario',bill=furniture?furnInvoiceTotals(d):null;
+ const base=furniture?bill.base:(invoice?Number(invoice.base)||0:(Number(r.base)||(num(d.checkedM3)*num(d.autoPriceM3))||0));
+ const vatPct=invoice?Number(invoice.vat)||0:21;
+ const vatAmount=furniture?bill.vat:Math.round(base*vatPct)/100;
+ const total=furniture?bill.total:base+vatAmount;
+ const taxRates=furniture?[...new Set(bill.lines.map(x=>x.vat))]:[vatPct];
+ const lines=furniture?bill.lines:[{concept:invoice?.concept||r.concept||'Tratamiento en autoclave',quantity:num(d.checkedM3)||1,unit:num(d.autoPriceM3)||0,discount:0,vat:vatPct,base,total}];
+ const pageSize=10,totalPages=Math.max(1,Math.ceil(lines.length/pageSize));
+ for(let p=0;p<totalPages;p++){
+  const fields=[];pages.push(fields);
+  add(fields,type==='autoclave'?495:460,74,invNo,111);add(fields,type==='autoclave'?499:468,type==='autoclave'?99:97,date,90);
+  add(fields,120,189,c.name,170);add(fields,type==='autoclave'?60:54,207,c.taxId,165);add(fields,98,224,c.address,193);add(fields,108,242,c.postalCode,173);add(fields,95,259,c.province,181);
+  add(fields,365,189,c.phone,200);add(fields,354,207,c.email,230);add(fields,433,224,c.contact,138);add(fields,399,242,c.paymentMethod||'',175);
+  lines.slice(p*pageSize,(p+1)*pageSize).forEach((row,i)=>{
+   const y=(furniture?342.75:347)+i*(193/9),first=p*pageSize+i;
+   if(furniture){
+    // A4: las líneas horizontales de la tabla están a 342,4, 364,0, 385,4... pt.
+    // Todas las celdas de una misma fila usan EXACTAMENTE la misma caja vertical.
+    const center='display:flex;align-items:center;height:2.42%;line-height:1.05;';
+    const cell=(x,v,w,z)=>fields.push([x,y,v,w,z,center]);
+    cell(28,serviceDocNo(s,'MOB')+'-'+(first+1),69,7.5);
+    const description=`${row.concept||'Mueble'} (${[row.length,row.width,row.thickness].filter(x=>String(x??'').trim()).join(' × ')} m)`.replace(' ( m)','');
+    cell(105,description,173,8.0);
+    cell(285,row.quantity,52,8.3);cell(347,apMoney(row.unit),48,8.0);
+    // Descuento e IVA: centrar valores DENTRO de sus columnas, con margen a ambos bordes.
+    // Los límites de la plantilla son x=401..451 pt (Dto.) y x=451..494 pt (IVA).
+    const numericCenter='display:flex;align-items:center;justify-content:center;text-align:center;height:2.42%;line-height:1.05;';
+    fields.push([405,y,apMoney(row.discount),42,7.8,numericCenter]);
+    fields.push([454,y,apMoney(row.vat),36,7.8,numericCenter]);
+    cell(497,apMoney(row.total),69,8.0);
+   }else{
+    // Autoclave se conserva sin cambios.
+    add(fields,27,y,serviceDocNo(s,'AUT'),76,7.7);
+    add(fields,105,y,row.concept,174,8.2);
+    add(fields,306,y,row.quantity,45,8.4);add(fields,376,y,apMoney(row.unit),49,8.1);
+    add(fields,430,y,apMoney(row.discount),34,8);add(fields,467,y,apMoney(row.vat),36,8);
+    add(fields,516,y,apMoney(row.total),59,8.2);
+   }
+  });
+  if(p===totalPages-1){
+   add(fields,27,603,invoice?.notes||d.autoObs||d.furnObs||s.notes||'',256,8);
+   add(fields,500,583,apMoney(base)+' €',76,8.6);
+   add(fields,304,654,taxRates.length===1?apMoney(taxRates[0])+' %':'Varios',53,8.1);
+   add(fields,421,654,apMoney(base)+' €',60,8.1);
+   add(fields,517,654,apMoney(vatAmount)+' €',60,8.1);
+   add(fields,495,703,apMoney(total)+' €',79,9.2);
+   const method=String(c.paymentMethod||'').trim();
+   add(fields,76,725,method,175,8);
+   add(fields,76,742,c.paymentTerms||'',140,8);
+   if(method&&!/contado|efectivo|metálico|metalico/i.test(method)&&c.iban){
+    const clean=String(c.iban).replace(/\s+/g,'');
+    add(fields,132,760,'•••• •••• •••• '+clean.slice(-4),235,8);
+   }
+  }
+  if(totalPages>1)add(fields,475,806,'Página '+(p+1)+' de '+totalPages,105,8);
+ }
+ apPreview(APPROVED_DOCS[type].invoice,pages.length===1?pages[0]:pages,{title:'Factura '+type,draft:!!invoice&&invoice.status!=='EMITIDA'||!invoice,readable:furniture});
+}
+
+function apMedia(s,kind,transport=false){
+ const m=[],d=s.data||{},r=d.documentReceipt||{},t=d.transport||{};
+ const photo=s.photos?.before||'';
+ if(photo&&s.type==='autoclave')m.push({src:photo,x:kind==='sheet'?18:34,y:kind==='sheet'?455:382,w:kind==='sheet'?168:173,h:kind==='sheet'?116:118});
+ if(s.type==='mobiliario'){
+  if(kind==='sheet'){
+   const rows=apRows(s);
+   rows.forEach((row,i)=>{const pic=s.photos?.['furn_'+row.id];if(pic)m.push({src:pic,page:i,x:27,y:457,w:174,h:101})});
+  }else if(kind==='delivery'&&s.photos?.furnGroup){
+   m.push({src:s.photos.furnGroup,page:0,x:31,y:414,w:195,h:103}); // casilla interior de FOTOGRAFÍA DEL MOBILIARIO
+  }
+ }
+ if(kind==='delivery'){
+  const signature=transport?t.signature:r.signature;
+  if(signature)m.push({src:signature,x:s.type==='autoclave'?37:31,y:s.type==='autoclave'?655:665,w:s.type==='autoclave'?235:230,h:65});
+ }
+ if(kind==='sheet'){
+  const sig=state.company?.directorSignature;if(sig)m.push({src:sig,x:220,y:715,w:149,h:48});
+ }
+ return m;
+}
+
+// Divide todas las mediciones de Autoclave en copias sucesivas del mismo modelo aprobado.
+// Nunca se omiten filas ni se modifica el original.
+function apDocumentPages(s,kind,forTransport=false){
+ const rows=apRows(s);
+ if(s.type!=='autoclave'&&s.type!=='mobiliario'||!rows.length)return apD(s,kind,forTransport);
+ if(s.type==='mobiliario'){
+  const isSheet=kind==='sheet',perPage=isSheet?1:7,count=Math.ceil(rows.length/perPage),pages=[];
+  for(let i=0;i<count;i++){
+   const segment={...s,data:{...(s.data||{}),furnItems:rows.slice(i*perPage,(i+1)*perPage)}};
+   const fields=apD(segment,kind,forTransport);
+   if(isSheet){const line=fields.find(f=>String(f[2]).startsWith('Precio por unidad:'));if(line)line[2]=line[2].replace(/Base total hoja:.*$/, 'Base total hoja: '+apMoney(furnMoneyBase(s.data))+' €')}
+   if(count>1)fields.push([462,806,`${isSheet?'Mueble':'Página'} ${i+1} de ${count}`,120,8,'font-weight:700']);
+   pages.push(fields);
+  }
+  return pages.length===1?pages[0]:pages;
+ }
+ if(typeof autoVolume==='function'&&rows.some(row=>!autoVolume(row))){
+   alert('Hay mediciones incompletas o no válidas. Corrige la tabla antes de generar el documento.');return null;
+ }
+ const limit=kind==='sheet'?4:7,count=Math.ceil(rows.length/limit),pages=[];
+ for(let i=0;i<count;i++){
+   const segment={...s,data:{...(s.data||{}),autoMeasurements:rows.slice(i*limit,(i+1)*limit)}};
+   const fields=apD(segment,kind,forTransport);
+   if(!fields)return null;
+   if(count>1)fields.push([470,806,`Página ${i+1} de ${count}`,91,7]);
+   pages.push(fields);
+ }
+ return pages.length===1?pages[0]:pages;
+}
+// Reutilizar exactamente los puntos de entrada existentes. Los demás módulos no se modifican.
+const apLegacyPrintService=printServiceDocument;
+printServiceDocument=function(s){
+ if(!APPROVED_DOCS[s.type])return apLegacyPrintService(s);
+ const r=s.data?.documentReceipt||{},kind=r.kind==='Albarán'?'delivery':'sheet';
+ const fields=apDocumentPages(s,kind);if(fields)apPreview(APPROVED_DOCS[s.type][kind],fields,{title:kind==='sheet'?'Hoja de servicio aprobada':'Albarán aprobado',media:apMedia(s,kind),readable:s.type==='mobiliario'});
+};
+const apLegacyPrintTransport=printTransport;
+printTransport=function(s){
+ if(!APPROVED_DOCS[s.type])return apLegacyPrintTransport(s);
+ const t=s.data?.transport||{};
+ if(!t.receiver||!t.signDate||!t.signature){alert('El albarán necesita firma de recepción antes de imprimir.');return}
+ const fields=apDocumentPages(s,'delivery',true);
+ if(fields)apPreview(APPROVED_DOCS[s.type].delivery,fields,{title:'Albarán aprobado',media:apMedia(s,'delivery',true),readable:s.type==='mobiliario'});
+};
+const apLegacyPrintInvoice=printInvoice;
+printInvoice=function(i){
+ if(!i)return;
+ const s=state.services.find(x=>x.id===i.serviceId);
+ if(!s){alert('Para utilizar la factura aprobada, vincula primero la factura a su hoja de servicio. No se generará una factura con otro diseño.');return}
+ if(!APPROVED_DOCS[s.type])return apLegacyPrintInvoice(i);
+ apInvoice(s,i);
+};
+const apLegacyBillingPreview=printBillingPreview;
+printBillingPreview=function(s,r){if(!APPROVED_DOCS[s.type])return apLegacyBillingPreview(s,r);apInvoice(s,null,r);};
+
 })();
