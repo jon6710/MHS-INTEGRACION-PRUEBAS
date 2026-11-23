@@ -43,8 +43,14 @@ async function listQueue(){const s=await tx(Q);return (await req(s.getAll()))||[
 async function pendingCount(){return (await listQueue()).filter(x=>x.status==='pending').length;}
 async function storeBlob(blob,meta={}){
   const id='blob_'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-  const s=await tx(B,'readwrite');
-  await req(s.put({id,blob,meta,createdAt:new Date().toISOString()}));
+  const db=await openDB();
+  await new Promise((resolve,reject)=>{
+    const transaction=db.transaction(B,'readwrite');
+    transaction.objectStore(B).put({id,blob,meta,createdAt:new Date().toISOString()});
+    transaction.oncomplete=resolve;
+    transaction.onerror=()=>reject(transaction.error||Error('No se pudo guardar la fotografía'));
+    transaction.onabort=()=>reject(transaction.error||Error('Guardado de fotografía cancelado'));
+  });
   return id;
 }
 async function getBlob(id){if(!id)return null;const s=await tx(B);return req(s.get(id));}

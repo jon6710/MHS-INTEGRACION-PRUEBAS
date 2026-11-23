@@ -1,0 +1,16 @@
+MHSARBIDE — Autoguardado en toda la aplicación (candidata para pruebas)
+23 noviembre 2026
+
+Cambios sobre MHS_INTEGRACION_REPARACION_LECTURA_SUPABASE_20NOV.zip:
+- app.js: captura cambios de texto/selección en hojas, datos de empresa, albaranes, documentos, facturas y presupuestos; guarda automáticamente sin necesidad de pulsar Guardar.
+- app.js: serializa las escrituras en IndexedDB y SOLO después crea la entrada pendiente de sincronización a Supabase.
+- app.js: controla borradores de facturas y presupuestos para no duplicar una fila al pulsar Guardar más adelante.
+- app.js: guarda también al seleccionar o retirar logotipo, sello o firma de empresa.
+- offline-sync.js: espera a la finalización de la transacción IndexedDB al guardar imágenes y adjuntos.
+- sw.js: versión de caché actualizada para evitar la reutilización de scripts antiguos.
+
+Sin alteraciones en acceso, URLs de Supabase, bucket adjuntos, plantillas PDF, imágenes de fondo ni tablas.
+El sistema existente publica automáticamente los cambios cuando está conectado, bajo su política de verificación y conflictos.
+No hay garantías de sincronización en segundo plano cuando el navegador está cerrado.
+No se han hecho pruebas reales contra el Supabase del usuario ni pruebas en iMac/tablet/móvil.
+No se debe considerar versión de producción validada hasta probar creación/edición, cierre/reapertura, recepción en otro dispositivo, subida de fotos y generación de PDF.
