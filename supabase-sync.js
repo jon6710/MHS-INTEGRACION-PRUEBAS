@@ -472,10 +472,9 @@ async function resolveLocalConflict(){
    const applied=await window.MHSApp.applyRemoteState(last[0].state,{source:'supabase'});
    if(applied!==true||!sameState(snapshot(),last[0].state))
      throw Error('La lectura local después de aplicar la nube no coincide.');
-   // app.js puede ignorar un fallo de almacenamiento; comprobar persistencia real.
-   const saved=window.localStorage.getItem('hmsarbide_sync_piloto_v1_local');
-   if(!saved||!sameState(JSON.parse(saved),last[0].state))
-     throw Error('La copia nueva no quedó verificada en localStorage.');
+   // app.js guarda ahora en IndexedDB para no superar la cuota de localStorage.
+   if(!window.MHSOffline?.loadState)
+     throw Error('IndexedDB no disponible; no se considera recuperada la copia.');
    if(window.MHSOffline?.loadState){
      const offline=await window.MHSOffline.loadState();
      if(!offline||!sameState(offline,last[0].state))

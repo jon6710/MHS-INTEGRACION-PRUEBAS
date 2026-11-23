@@ -10,7 +10,7 @@ const trunc4=n=>Number.isFinite(n)?Math.trunc(n*10000)/10000:NaN;
 const num=v=>{if(v===null||v===undefined||String(v).trim()==='')return NaN;return Number(String(v).trim().replace(',','.'))};
 const fmt4=v=>Number.isFinite(trunc4(v))?trunc4(v).toFixed(4).replace('.',','):'—';
 const money=v=>Number.isFinite(v)?v.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €':'—';
-const db={get(){try{return JSON.parse(localStorage.getItem(APP)||'{"services":[],"company":{},"clients":[],"products":[]}')}catch{return {services:[],company:{},clients:[],products:[]}}},set(v){localStorage.setItem(APP,JSON.stringify(v))}};
+const db={get(){try{return JSON.parse(localStorage.getItem(APP)||'{"services":[],"company":{},"clients":[],"products":[]}')}catch{return {services:[],company:{},clients:[],products:[]}}}};
 let state=db.get();state.services=Array.isArray(state.services)?state.services:[];state.company=state.company||{};state.clients=Array.isArray(state.clients)?state.clients:[];state.products=Array.isArray(state.products)?state.products:[];state.invoices=Array.isArray(state.invoices)?state.invoices:[];state.budgets=Array.isArray(state.budgets)?state.budgets:[];state.numbering=state.numbering||{};if(!Number.isFinite(Number(state.numbering.serviceNext)))state.numbering.serviceNext=26001;let currentId=null;
 const typeMeta={
  madera:{name:'Madera in situ',icon:'🪵',desc:'Tratamientos sobre estructuras de madera'},
@@ -48,13 +48,28 @@ function syncPayload(){
  }
  return clone;
 }
+// IndexedDB es el almacén PRINCIPAL para datos y fotos grandes.
+// No se vuelve a escribir el estado completo en localStorage (límite ~5 MB).
+// Se conserva intacta cualquier copia antigua de localStorage para recuperación.
+let durableSave=Promise.resolve();
+let durableSaveError=null;
 function save(){
- if(window.HMSSupabasePilot)window.HMSSupabasePilot.onLocalSave(state);
- try{db.set(state)}catch(e){console.warn('localStorage lleno; se mantiene copia IndexedDB',e);toast('Guardado local alternativo activado')}
- if(window.MHSOffline){
-  MHSOffline.saveState(state).catch(()=>{});
-  /* La sincronización remota se gestiona desde Supabase; no enviar a Cloudflare. */
- }
+ const copy=JSON.parse(JSON.stringify(state));
+ durableSave=durableSave.catch(()=>{}).then(async()=>{
+  if(!window.MHSOffline?.saveState)throw Error('El almacenamiento IndexedDB no está disponible.');
+  await window.MHSOffline.saveState(copy);
+  const verified=await window.MHSOffline.loadState();
+  if(JSON.stringify(verified)!==JSON.stringify(copy))throw Error('No se pudo verificar el guardado local.');
+  durableSaveError=null;
+  // La sincronización solo recibe estados que YA están guardados y verificados.
+  window.HMSSupabasePilot?.onLocalSave?.(copy);
+ }).catch(e=>{
+  durableSaveError=e;
+  console.error('Guardado local NO confirmado',e);
+  toast('ERROR guardando datos. Exporta copia JSON y no cierres la app.');
+  // Los botones existentes no esperan Promises: registrar el fallo sin rechazos sin gestionar.
+ });
+ return durableSave;
 }
 function getCurrent(){return state.services.find(x=>x.id===currentId)}
 function commonNew(type){return{id:uid(),type,number:'',date:nowDate(),status:'BORRADOR',client:{name:'',address:'',contact:'',phone:'',email:''},technician:'',notes:'',data:{},photos:{before:'',after:''},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}}
@@ -378,10 +393,45 @@ function printBudget(b){if(!b)return;const c=state.clients.find(x=>x.id===b.clie
 
 printDoc=function(title,body){const c=state.company||{},w=window.open('','_blank');if(!w){alert('Permite ventanas emergentes para imprimir.');return}w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Arial,sans-serif;color:#203129;font-size:11pt;background:#e9ecea;padding:24px}.a4-page{position:relative;width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:14mm;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow:hidden}header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px;display:flex;gap:12px;align-items:center}header img{max-width:100px;max-height:60px;object-fit:contain}h1{color:#0f7a49;margin:0;font-size:21pt}h2{color:#27543d}.meta{font-size:9pt;color:#64776d}.company-doc-head{display:flex;gap:12px;align-items:center;border:1px solid #d5e1db;border-radius:8px;padding:10px;margin:8px 0 18px}.company-doc-head img{max-width:100px;max-height:60px}.company-doc-head small{display:block;color:#64776d}.big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}.sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}.sign span{border-top:1px solid #777;padding-top:6px;text-align:center}.draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}table{width:100%;border-collapse:collapse;margin:15px 0}th,td{border:1px solid #ccc;padding:9px;text-align:left}.tot{text-align:right;font-size:12pt}.note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}.preview-actions{position:sticky;top:12px;z-index:2;display:flex;justify-content:center;gap:8px;margin-bottom:14px}.preview-actions button{border:0;border-radius:9px;padding:10px 14px;background:#0f7a49;color:#fff;font-weight:700;cursor:pointer}.preview-actions button.secondary{background:#fff;color:#0f7a49;border:1px solid #9fc7b0}@media(max-width:900px){body{padding:12px}.a4-page{width:100%;min-height:auto;padding:clamp(14px,4vw,32px);box-shadow:0 4px 18px rgba(0,0,0,.14)}h1{font-size:18pt}.sign{grid-template-columns:1fr;gap:18px;margin-top:36px}}@media print{body{background:#fff;padding:0}.preview-actions{display:none!important}.a4-page{width:210mm;min-height:297mm;margin:0;box-shadow:none;padding:14mm;overflow:visible}}</style></head><body><div class="preview-actions"><button onclick="window.print()">Imprimir / Guardar PDF</button><button class="secondary" onclick="window.close()">Cerrar</button></div><main class="a4-page"><header>${c.logo?`<img src="${c.logo}" alt="Logo">`:''}<div><h1>${esc(title)}</h1><div class="meta">${esc(c.commercialName||c.name||'Empresa')}${c.name&&c.commercialName?` · ${esc(c.name)}`:''}${c.taxId?` · ${esc(c.taxId)}`:''}${c.registration?` · ROESB ${esc(c.registration)}`:''}<br>${esc([c.address,c.postalCode,c.province].filter(Boolean).join(' · '))}</div></div></header>${body}<footer>Generado desde MHSARBIDE</footer></main></body></html>`);w.document.close()};
 
-if(window.MHSOffline){
- MHSOffline.loadState().then(saved=>{if(saved&&Array.isArray(saved.services)){const localStamp=Math.max(0,...(state.services||[]).map(x=>Date.parse(x.updatedAt)||0));const idbStamp=Math.max(0,...saved.services.map(x=>Date.parse(x.updatedAt)||0));if(idbStamp>localStamp){state=saved;try{db.set(state)}catch{};renderDashboard()}}}).catch(()=>{});
-}
+// Esperar la carga local ANTES de que Supabase pueda leer el estado.
+// Los datos existentes en ambas ubicaciones se conservan; nunca eliminar el respaldo anterior.
+const appReady=(async()=>{
+ if(!window.MHSOffline?.loadState)return;
+ const stored=await window.MHSOffline.loadState();
+ if(stored&&Array.isArray(stored.services)){
+  const merged={...stored};
+  for(const key of ['services','clients','products','invoices','budgets']){
+   const fromIdb=Array.isArray(stored[key])?stored[key]:[];
+   const fromOld=Array.isArray(state[key])?state[key]:[];
+   const byId=new Map(fromIdb.filter(x=>x?.id!=null).map(x=>[String(x.id),x]));
+   for(const row of fromOld){
+    if(row?.id==null){fromIdb.push(row);continue;}
+    const old=byId.get(String(row.id));
+    if(!old){byId.set(String(row.id),row);continue;}
+    if((Date.parse(row.updatedAt)||0)>(Date.parse(old.updatedAt)||0))byId.set(String(row.id),row);
+   }
+   merged[key]=[...byId.values()];
+  }
+  merged.company={...(state.company||{}),...(stored.company||{})};
+  merged.numbering={...(state.numbering||{}),...(stored.numbering||{})};
+  state=merged;
+  await window.MHSOffline.saveState(state);
+ }else if(state.services?.length||state.clients?.length||state.products?.length||
+     state.invoices?.length||state.budgets?.length||Object.values(state.company||{}).some(Boolean)){
+  // Primera migración: comprobar que la copia vieja quedó en IndexedDB.
+  await window.MHSOffline.saveState(state);
+  const confirmed=await window.MHSOffline.loadState();
+  if(JSON.stringify(confirmed)!==JSON.stringify(state))throw Error('No se pudo verificar la migración local.');
+ }
+ renderDashboard();
+})().catch(e=>{
+ durableSaveError=e;
+ console.error('No se pudo inicializar IndexedDB',e);
+ alert('NO SE HA CONFIRMADO EL ALMACENAMIENTO LOCAL. No guardes ni sincronices. Exporta una copia JSON antes de cerrar.');
+ throw e;
+});
 window.MHSApp={
+ ready:appReady,
  getState:()=>JSON.parse(JSON.stringify(state)),
  applyRemoteState:async(remote,{source='remote'}={})=>{
   if(!remote||!Array.isArray(remote.services))return false;
@@ -419,10 +469,14 @@ window.MHSApp={
   }
   joined.company={...(own.company||{}),...(remote.company||{})};
   joined.numbering={...(own.numbering||{}),...(remote.numbering||{})};
-  const serialized=JSON.stringify(joined);
-  // Persist BOTH local stores before exposing changed state.
-  localStorage.setItem(APP,serialized);
-  if(window.MHSOffline)await MHSOffline.saveState(joined);
+  // No escribir estados grandes en localStorage: esa era la causa del QuotaExceededError.
+  await appReady;
+  await durableSave;
+  if(durableSaveError)throw Error('Existe un guardado local sin confirmar. No se aplican datos remotos.');
+  if(!window.MHSOffline?.saveState)throw Error('IndexedDB no disponible: no se aplican datos remotos.');
+  await window.MHSOffline.saveState(joined);
+  const check=await window.MHSOffline.loadState();
+  if(JSON.stringify(check)!==JSON.stringify(joined))throw Error('No se ha verificado la copia remota; no se aplica.');
   state=joined;
   renderDashboard();
   return true;
