@@ -1,6 +1,6 @@
 (()=>{
 'use strict';
-const APP='mhs_integracion_supabase_limpia_v1';
+const APP='mhs_integracion_aut_mob_pruebas_v1';
 const app=document.getElementById('app');
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -48,21 +48,12 @@ function syncPayload(){
  }
  return clone;
 }
-// Las escrituras duraderas se procesan en orden, sin publicar antes de persistir.
-let mhsSaveChain=Promise.resolve();
 function save(){
- const copy=typeof structuredClone==='function'?structuredClone(state):JSON.parse(JSON.stringify(state));
- mhsSaveChain=mhsSaveChain.catch(e=>console.error('Guardado previo fallido',e)).then(async()=>{
-  if(!window.MHSOffline?.saveState)throw Error('IndexedDB no disponible para el autoguardado');
-  await window.MHSOffline.saveState(copy);
-  try{db.set(copy)}catch(e){console.warn('Copia secundaria localStorage no disponible',e)}
-  window.HMSSupabasePilot?.onLocalSave?.(copy);
- }).catch(e=>{
-  console.error('MHSARBIDE: fallo de guardado',e);
-  const badge=document.getElementById('hms-sync-indicator');
-  if(badge){badge.textContent='⚠ Guardado pendiente';badge.title='No se pudo guardar en este dispositivo: '+e.message;}
- });
- return mhsSaveChain;
+ try{db.set(state)}catch(e){console.warn('localStorage lleno; se mantiene copia IndexedDB',e);toast('Guardado local alternativo activado')}
+ if(window.MHSOffline){
+  MHSOffline.saveState(state).catch(()=>{});
+  MHSOffline.enqueue('state_snapshot',syncPayload(),{dedupeKey:'state-main'}).catch(()=>{});
+ }
 }
 function getCurrent(){return state.services.find(x=>x.id===currentId)}
 function commonNew(type){return{id:uid(),type,number:'',date:nowDate(),status:'BORRADOR',client:{name:'',address:'',contact:'',phone:'',email:''},technician:'',notes:'',data:{},photos:{before:'',after:''},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}}
@@ -83,32 +74,7 @@ function moduleFeatures(type){const f={madera:['Fotos antes / después','Modalid
 function renderModuleOverview(type){currentId=null;const m=typeMeta[type],items=state.services.filter(s=>s.type===type).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));app.innerHTML=`<section class="module-hero module-hero-${type}"><div class="module-hero-icon">${m.icon}</div><div><span class="eyebrow">MÓDULO</span><h1>${m.name}</h1><p>${m.desc}</p></div><button class="btn" id="moduleNew">+ Nueva hoja</button></section><div class="module-overview-grid"><section class="panel"><h2>Qué incluye</h2><div class="feature-list">${moduleFeatures(type).map(x=>`<div>✓ ${esc(x)}</div>`).join('')}</div></section><section class="panel"><h2>Flujo</h2><div class="mini-flow"><span>Hoja</span><b>→</b><span>Documentación</span><b>→</b><span>Facturación</span><b>→</b><span>Certificado</span></div></section></div><section class="list-card"><div class="list-head"><h2>Expedientes / hojas de ${m.name}</h2><span class="tag">${items.length}</span></div><div class="service-list">${items.length?items.map(s=>row(s)).join(''):'<div class="empty">No hay hojas todavía en este módulo.</div>'}</div></section>`;$('#moduleNew').onclick=()=>createService(type);bindServiceRows()}
 function renderArea(area){const labels={albaranes:'Albaranes',facturacion:'Facturación',documentos:'Documentos'},title=labels[area]||area;let eligible=state.services;if(area==='albaranes')eligible=eligible.filter(s=>['autoclave','mobiliario'].includes(s.type));app.innerHTML=`<section class="hero"><div><span class="eyebrow">ÁREA COMÚN</span><h1>${title}</h1><p>Acceso central a los documentos generados desde cada hoja de servicio.</p></div></section><section class="list-card"><div class="list-head"><h2>Servicios disponibles</h2><span class="tag">${eligible.length}</span></div><div class="service-list">${eligible.length?eligible.map(s=>`<div class="service-row area-row"><div><b>${typeMeta[s.type].icon} ${esc(typeMeta[s.type].name)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div><small>${esc(s.date||'')}</small></div><div><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div></div><button class="btn secondary" data-area-open="${s.id}">Abrir hoja</button></div>`).join(''):'<div class="empty">Todavía no hay documentos disponibles.</div>'}</div></section>`;app.querySelectorAll('[data-area-open]').forEach(b=>b.onclick=()=>{currentId=b.dataset.areaOpen;setActiveNav(getCurrent()?.type);renderService()})}
 function row(s){const m=typeMeta[s.type]||{};return `<div class="service-row"><div><b>${m.icon||''} ${esc(m.name||s.type)}</b><br><small>${esc(s.number||'Sin número')} · ${esc(s.client?.name||'Sin cliente')}</small></div><div class="hide-mobile"><small>${esc(s.date||'')}</small><br>${esc(s.client?.address||'')}</div><div class="hide-tablet"><span class="tag ${s.status==='FINALIZADA'?'done':'pending'}">${esc(s.status)}</span></div><div class="hide-tablet"><small>${new Date(s.updatedAt).toLocaleDateString('es-ES')}</small></div><div class="row-actions"><button class="btn secondary" data-edit="${s.id}">Abrir</button><button class="btn red" data-delete-service="${s.id}">Eliminar</button></div></div>`}
-
-// PRUEBA AISLADA: textos por defecto solo para hojas nuevas de Mobiliario/Autoclave.
-// Los datos legales/técnicos se mantienen editables y deben comprobarse con la etiqueta vigente.
-const MHS_OBS_DEFAULT = `LAS CONDICIONES IDÓNEAS DE HUMEDAD PARA EL TRATAMIENTO DE LA MADERA ES DEL 20% AL INICIO DEL PROCESO DE TRATAMIENTO.
-EL CLIENTE TENDRÁ DERECHO A QUE SE LE COMPRUEBE LA HUMEDAD EN SU PRESENCIA O EN LA DE UNA PERSONA DESIGNADA POR ÉL. EN EL CASO DE NO SOLICITARLO, ENTENDEMOS QUE CONOCE EL GRADO DE HUMEDAD.
-CONSIENTE/AUTORIZA EFECTUAR UN TRATAMIENTO DE PULVERIZADO MANUAL (2 MANOS) A LAS PARTIDAS RELACIONADAS EN ESTE ALBARÁN.`;
-const MHS_BIOCIDE_DEFAULTS = {
-  bioRegistration: 'DGSP 13-30-06710',
-  bioActives: 'Cipermetrina 40/60, Propiconazol, Tebuconazol, 3-iodo-propinilbutil carbamato',
-  bioProduct: 'Madera tratada con producto biocida TP-8',
-  bioProperties: 'Insecticida y fungicida',
-  bioNano: 'No contiene',
-  bioInstructions: 'Tener en cuenta el mecanizado y las medidas de protección para las personas, animales y el medio ambiente en la manipulación de este artículo.'
-};
-function mhsObsFields(d){
- return `<div class="notice" style="margin-top:10px"><b>Texto de observaciones automático y editable.</b> Los datos del biocida también se pueden cambiar en cada hoja. Comprueba la etiqueta y el registro vigentes antes de emitir documentos.</div><div class="grid">${field('bioRegistration','N.º de registro del biocida',d.bioRegistration??'')}${textarea('bioActives','Materias activas (editable)',d.bioActives??'')}${field('bioProduct','Descripción del biocida',d.bioProduct??'')}${field('bioProperties','Propiedad biocida',d.bioProperties??'')}${field('bioNano','Nanomateriales',d.bioNano??'')}${textarea('bioInstructions','Instrucciones de uso',d.bioInstructions??'')}</div>`;
-}
-function mhsObsCollect(d){for(const k of Object.keys(MHS_BIOCIDE_DEFAULTS)){const el=$('#'+k);if(el)d[k]=el.value}}
-function mhsObsAnnex(s,kind){
- if(!s.data?.mhsObsDefaultV1)return null;
- const d=s.data, obs=kind==='delivery' ? (d.documentReceipt?.notes|| (s.type==='autoclave'?d.autoObs:d.furnObs)||'') : ((s.type==='autoclave'?d.autoObs:d.furnObs)||'');
- // Anexo únicamente en hojas nuevas de este piloto. No afecta a documentos históricos.
- return {number:s.number||'',observations:obs,registration:d.bioRegistration||'',actives:d.bioActives||'',product:d.bioProduct||'',properties:d.bioProperties||'',nano:d.bioNano||'',instructions:d.bioInstructions||''};
-}
-
-function createService(type){const s=commonNew(type);if(type==='autoclave'||type==='mobiliario'){s.data={mhsObsDefaultV1:true,...MHS_BIOCIDE_DEFAULTS,[type==='autoclave'?'autoObs':'furnObs']:MHS_OBS_DEFAULT}}s.baseNumber=nextServiceBase();s.number=serviceDocNo(s,'HS');state.services.unshift(s);save();currentId=s.id;setActiveNav(type);renderService()}
+function createService(type){const s=commonNew(type);s.baseNumber=nextServiceBase();s.number=serviceDocNo(s,'HS');state.services.unshift(s);save();currentId=s.id;setActiveNav(type);renderService()}
 function renderService(){const s=getCurrent();if(!s)return renderDashboard();setActiveNav(s.type);if(s.type==='madera')return renderMadera(s);if(s.type==='autoclave')return renderAutoclave(s);if(s.type==='ddd')return renderDDD(s);if(s.type==='mobiliario')return renderMobiliario(s);return renderTermitas(s)}
 function toolbar(s,{transport=false,billing=true,certificate=true}={}){
  const n=(s.attachments||[]).length;
@@ -126,7 +92,7 @@ function bindCommon(s,collector,opts={}){
  if($('#billingBtn'))$('#billingBtn').onclick=()=>{collector(s);save();openBilling(s)};
  if($('#transportBtn'))$('#transportBtn').onclick=()=>{collector(s);save();openTransport(s)};
  const att=$('#serviceAttachment');
- if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();/* El adjunto permanece local hasta habilitar Supabase Storage. */toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
+ if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();if(window.MHSOffline)await MHSOffline.enqueue('attachment',{serviceId:s.id,attachmentId:a.id,name:a.name,type:a.type,size:a.size},{blobId});toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
  bindPhoto('photoBefore',s,'before');bindPhoto('photoAfter',s,'after');
  const cn=$('#clientName');if(cn)cn.addEventListener('change',()=>{const c=(state.clients||[]).find(x=>String(x.name||'').toLowerCase()===cn.value.trim().toLowerCase());if(c){$('#clientContact').value=c.contact||'';$('#clientPhone').value=c.phone||'';$('#clientAddress').value=c.address||'';$('#clientEmail').value=c.email||'';}});
  bindRecoveredAttachments(s);
@@ -136,7 +102,7 @@ function photoSection(s){return `<section class="section"><h3>Fotos antes y desp
 function photoBox(id,title,src){return `<div class="photo-box"><h4>${title}</h4><div class="photo-preview" id="${id}Preview">${src?`<img src="${src}" alt="${title}">`:'Sin foto'}</div><input id="${id}" type="file" accept="image/*"></div>`}
 function bindPhoto(id,s,key){
  const inp=$('#'+id);if(!inp)return;
- inp.onchange=async()=>{const f=inp.files?.[0];if(!f)return;try{const data=await compressImage(f);s.photos=s.photos||{};s.photos[key]=data;if(s.photoCloud)delete s.photoCloud[key];s.updatedAt=new Date().toISOString();let blobId='';if(window.MHSOffline){const blob=await (await fetch(data)).blob();blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-${key}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:key})}save();/* La fotografía se conserva en IndexedDB y en el estado hasta completar Storage. */$('#'+id+'Preview').innerHTML=`<img src="${data}" alt="Foto ${key}">`;toast(navigator.onLine?'Foto guardada · pendiente de sincronizar':'Foto guardada sin conexión')}catch(e){alert('No se pudo procesar la foto.')}};
+ inp.onchange=async()=>{const f=inp.files?.[0];if(!f)return;try{const data=await compressImage(f);s.photos=s.photos||{};s.photos[key]=data;s.updatedAt=new Date().toISOString();let blobId='';if(window.MHSOffline){const blob=await (await fetch(data)).blob();blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-${key}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:key})}save();if(window.MHSOffline)await MHSOffline.enqueue('photo',{serviceId:s.id,key,name:`${s.id}-${key}.jpg`,type:'image/jpeg'},{dedupeKey:`photo-${s.id}-${key}`,blobId});$('#'+id+'Preview').innerHTML=`<img src="${data}" alt="Foto ${key}">`;toast(navigator.onLine?'Foto guardada · pendiente de sincronizar':'Foto guardada sin conexión')}catch(e){alert('No se pudo procesar la foto.')}};
 }
 function compressImage(file){return new Promise((res,rej)=>{const r=new FileReader();r.onerror=rej;r.onload=()=>{const img=new Image();img.onerror=rej;img.onload=()=>{const max=1280;let w=img.width,h=img.height;if(Math.max(w,h)>max){const k=max/Math.max(w,h);w=Math.round(w*k);h=Math.round(h*k)}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);res(c.toDataURL('image/jpeg',.76))};img.src=r.result};r.readAsDataURL(file)})}
 
@@ -193,7 +159,7 @@ function renderAutoclave(s){
  <div class="notice warn" id="autoIncompleteNotice" hidden>Hay filas incompletas o con medidas no válidas: no se incluyen en el total. Comprueba unidades enteras y dimensiones positivas.</div>
  <div class="notice" id="autoLegacyNotice" hidden>Esta hoja tenía una medición manual anterior. Se conserva hasta que completes una fila de medidas válida.</div>
  <div class="kpis"><div class="kpi"><span>Cliente</span><strong id="aDeclared">—</strong></div><div class="kpi"><span>Nuestra medición</span><strong id="aChecked">—</strong></div><div class="kpi"><span>Diferencia</span><strong id="aDiff">—</strong></div><div class="kpi"><span>Diferencia %</span><strong id="aPct">—</strong></div></div></div></section>
- <section class="section"><h3>4. m³ a facturar</h3><div class="inner"><div class="grid">${field('billM3','m³ a facturar',d.billM3||'','text','readonly class="readonly"')}${field('autoPriceM3','Precio €/m³',d.autoPriceM3||'','text','inputmode="decimal"')}</div><div class="notice"><b>Regla fija:</b> m³ a facturar = nuestra medición, truncada a 4 decimales, sin redondear.</div><div class="totals"><div class="total"><span>Base estimada</span><strong id="aBase">—</strong></div><div class="total"><span>IVA 21 %</span><strong id="aVat">—</strong></div><div class="total"><span>Total</span><strong id="aTotal">—</strong></div></div></div></section>${photoSection(s)}${textarea('autoObs','Observaciones',d.autoObs||'')}${mhsObsFields(d)}</div></div>`;
+ <section class="section"><h3>4. m³ a facturar</h3><div class="inner"><div class="grid">${field('billM3','m³ a facturar',d.billM3||'','text','readonly class="readonly"')}${field('autoPriceM3','Precio €/m³',d.autoPriceM3||'','text','inputmode="decimal"')}</div><div class="notice"><b>Regla fija:</b> m³ a facturar = nuestra medición, truncada a 4 decimales, sin redondear.</div><div class="totals"><div class="total"><span>Base estimada</span><strong id="aBase">—</strong></div><div class="total"><span>IVA 21 %</span><strong id="aVat">—</strong></div><div class="total"><span>Total</span><strong id="aTotal">—</strong></div></div></div></section>${photoSection(s)}${textarea('autoObs','Observaciones',d.autoObs||'')}</div></div>`;
  // Guardamos el valor anterior solo para compatibilidad con hojas antiguas.
  $('#checkedM3').dataset.legacy=d.checkedM3||'';
  bindCommon(s,collectAutoclave,{transport:true});
@@ -207,7 +173,6 @@ function renderAutoclave(s){
 function collectAutoclave(s){
  commonCollect(s);const d=s.data=s.data||{};
  ['clientDeliveryNo','declaredM3','checkMethod','autoPriceM3','autoObs'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});
- mhsObsCollect(d);
  d.autoMeasurements=autoRowsFromUI();
  calcAutoclave();
  d.checkedM3=$('#checkedM3').value;
@@ -300,7 +265,7 @@ function furnUpdate(){
 }
 function renderMobiliario(s){
  const d=s.data||{},items=furnRows(d);const current=items.length?items:[{id:uid()}];
- app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Mobiliario')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Muebles y espacio necesario en autoclave</h3><div class="inner"><div id="furnItemsBody">${current.map(r=>furnRowHTML(r,s)).join('')}</div><div class="auto-measure-actions"><button type="button" class="btn secondary" id="furnAdd">+ Añadir mueble</button><small>Un apartado de medidas y una fotografía por mueble.</small></div><div class="notice"><b>Volumen total: <span id="furnTotal">0,0000</span> m³</b><div id="furnVolumeNotice"></div></div><div class="notice" style="margin-top:9px"><b>Base de los muebles (sin IVA): <span id="furnPriceTotal">0,00 €</span></b><div>Precio manual por unidad × cantidad, aplicando descuento e IVA por cada mueble. El volumen no interviene en el precio.</div></div><div class="notice warn" id="furnPriceInvalid" hidden>Comprueba los precios, descuentos (0 a 100 %) e IVA (0 a 100 %).</div><div class="notice warn" id="furnInvalid" hidden>Hay medidas incompletas o no válidas: comprueba unidades enteras y dimensiones positivas.</div><div class="grid">${select('furnTreatment','Tratamiento realizado',['AUTOCLAVE','INSITU GEL'],['AUTOCLAVE','INSITU GEL'].includes(d.furnTreatment)?d.furnTreatment:'AUTOCLAVE')}${textarea('furnObs','Observaciones',d.furnObs||'')}</div>${mhsObsFields(d)}</div></section><section class="section"><h3>Aviso sobre mobiliario barnizado y acabados</h3><div class="inner"><div class="notice warn"><b>Importante:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</div></div></section>${(s.photos?.before||s.photos?.after)?`<section class="section"><h3>Fotos conservadas de la hoja anterior</h3><div class="inner"><div class="photos">${photoBox('photoBefore','Foto ANTES',s.photos.before)}${photoBox('photoAfter','Foto DESPUÉS',s.photos.after)}</div></div></section>`:''}<section class="section"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="furnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Conjunto de muebles">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía del conjunto <input type="file" id="furnGroupPhoto" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="furnGroupCamera" accept="image/*" capture="environment"></label><button type="button" id="furnGroupRemove" class="btn secondary" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>${recoveredAttachmentsSection(s)}<section class="section"><h3>4. Facturación Mobiliario</h3><div class="inner"><div class="notice"><b>El precio unitario, el descuento y el IVA se introducen por mueble; la factura suma todas las líneas.</b> Los m³ no afectan a la facturación.</div><div class="grid">${field('furnBudgetRef','Referencia presupuesto',d.furnBudgetRef||'')}</div></div></section></div></div>`;
+ app.innerHTML=toolbar(s,{transport:true})+`<div class="sheet">${commonHeader(s,'Mobiliario')}<div class="sheet-body">${commonSection(s)}<section class="section"><h3>2. Muebles y espacio necesario en autoclave</h3><div class="inner"><div id="furnItemsBody">${current.map(r=>furnRowHTML(r,s)).join('')}</div><div class="auto-measure-actions"><button type="button" class="btn secondary" id="furnAdd">+ Añadir mueble</button><small>Un apartado de medidas y una fotografía por mueble.</small></div><div class="notice"><b>Volumen total: <span id="furnTotal">0,0000</span> m³</b><div id="furnVolumeNotice"></div></div><div class="notice" style="margin-top:9px"><b>Base de los muebles (sin IVA): <span id="furnPriceTotal">0,00 €</span></b><div>Precio manual por unidad × cantidad, aplicando descuento e IVA por cada mueble. El volumen no interviene en el precio.</div></div><div class="notice warn" id="furnPriceInvalid" hidden>Comprueba los precios, descuentos (0 a 100 %) e IVA (0 a 100 %).</div><div class="notice warn" id="furnInvalid" hidden>Hay medidas incompletas o no válidas: comprueba unidades enteras y dimensiones positivas.</div><div class="grid">${select('furnTreatment','Tratamiento realizado',['AUTOCLAVE','INSITU GEL'],['AUTOCLAVE','INSITU GEL'].includes(d.furnTreatment)?d.furnTreatment:'AUTOCLAVE')}${textarea('furnObs','Observaciones',d.furnObs||'')}</div></div></section><section class="section"><h3>Aviso sobre mobiliario barnizado y acabados</h3><div class="inner"><div class="notice warn"><b>Importante:</b> En piezas barnizadas, lacadas o con otros acabados superficiales, el producto de tratamiento penetrará principalmente a través de los orificios existentes producidos por la plaga y por las zonas de madera sin barnizar o sin recubrimiento. Debido a las condiciones propias del tratamiento en autoclave, no se puede garantizar la conservación del estado original de barnices, lacas, pinturas u otros acabados superficiales tras el proceso.</div></div></section>${(s.photos?.before||s.photos?.after)?`<section class="section"><h3>Fotos conservadas de la hoja anterior</h3><div class="inner"><div class="photos">${photoBox('photoBefore','Foto ANTES',s.photos.before)}${photoBox('photoAfter','Foto DESPUÉS',s.photos.after)}</div></div></section>`:''}<section class="section"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="furnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Conjunto de muebles">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía del conjunto <input type="file" id="furnGroupPhoto" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="furnGroupCamera" accept="image/*" capture="environment"></label><button type="button" id="furnGroupRemove" class="btn secondary" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>${recoveredAttachmentsSection(s)}<section class="section"><h3>4. Facturación Mobiliario</h3><div class="inner"><div class="notice"><b>El precio unitario, el descuento y el IVA se introducen por mueble; la factura suma todas las líneas.</b> Los m³ no afectan a la facturación.</div><div class="grid">${field('furnBudgetRef','Referencia presupuesto',d.furnBudgetRef||'')}</div></div></section></div></div>`;
  bindCommon(s,collectMobiliario,{transport:true});
  $('#furnAdd').onclick=()=>{$('#furnItemsBody').insertAdjacentHTML('beforeend',furnRowHTML({id:uid()},s));furnUpdate()};
  $('#furnItemsBody').addEventListener('input',e=>{if(e.target.matches('[data-furn]'))furnUpdate()});
@@ -308,20 +273,20 @@ function renderMobiliario(s){
   const delPhoto=e.target.closest('.furn-delete-photo');
   if(delPhoto){const el=delPhoto.closest('.furn-item'),key='furn_'+el.dataset.furnId;
    if(!confirm('¿Eliminar la fotografía de este mueble?'))return;
-   s.photos=s.photos||{};delete s.photos[key];if(s.photoCloud)delete s.photoCloud[key];el.querySelector('.furn-photo-preview').textContent='Sin foto';
+   s.photos=s.photos||{};delete s.photos[key];el.querySelector('.furn-photo-preview').textContent='Sin foto';
    el.querySelectorAll('[data-furn-photo]').forEach(input=>input.value='');delPhoto.disabled=true;
    collectMobiliario(s);save();toast('Fotografía eliminada');return;
   }
   if(!e.target.closest('.furn-remove'))return;
   if(!confirm('¿Eliminar este mueble de la hoja?'))return;
-  const el=e.target.closest('.furn-item');if(s.photos)delete s.photos['furn_'+el.dataset.furnId];if(s.photoCloud)delete s.photoCloud['furn_'+el.dataset.furnId];el.remove();furnUpdate();
+  const el=e.target.closest('.furn-item');if(s.photos)delete s.photos['furn_'+el.dataset.furnId];el.remove();furnUpdate();
  });
  $('#furnItemsBody').addEventListener('change',async e=>{
   if(!e.target.matches('[data-furn-photo]'))return;
   const input=e.target,file=input.files?.[0];if(!file)return;
   const el=input.closest('.furn-item'),id=el.dataset.furnId;
   try{
-   const data=await compressImage(file);s.photos=s.photos||{};s.photos['furn_'+id]=data;if(s.photoCloud)delete s.photoCloud['furn_'+id];
+   const data=await compressImage(file);s.photos=s.photos||{};s.photos['furn_'+id]=data;
    collectMobiliario(s);save();
    if(window.MHSOffline){
     const blob=await(await fetch(data)).blob();const blobId=await MHSOffline.storeBlob(blob,{name:`${s.id}-furn-${id}.jpg`,type:'image/jpeg',serviceId:s.id,photoKey:'furn_'+id});
@@ -331,10 +296,10 @@ function renderMobiliario(s){
    toast('Fotografía del mueble guardada');
   }catch(err){alert('No se pudo guardar la fotografía: '+(err?.message||err))}
  });
- const saveGroup=async input=>{const file=input.files?.[0];if(!file)return;try{const data=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=data;if(s.photoCloud)delete s.photoCloud.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').innerHTML=`<img src="${data}" alt="Conjunto de muebles">`;$('#furnGroupRemove').disabled=false;toast('Foto del conjunto guardada')}catch(err){alert('No se pudo guardar la foto del conjunto: '+(err?.message||err))}};
+ const saveGroup=async input=>{const file=input.files?.[0];if(!file)return;try{const data=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=data;collectMobiliario(s);save();$('#furnGroupPreview').innerHTML=`<img src="${data}" alt="Conjunto de muebles">`;$('#furnGroupRemove').disabled=false;toast('Foto del conjunto guardada')}catch(err){alert('No se pudo guardar la foto del conjunto: '+(err?.message||err))}};
  $('#furnGroupPhoto').addEventListener('change',e=>saveGroup(e.target));
  $('#furnGroupCamera').addEventListener('change',e=>saveGroup(e.target));
- $('#furnGroupRemove').onclick=()=>{if(!confirm('¿Eliminar la foto del conjunto?'))return;delete s.photos.furnGroup;if(s.photoCloud)delete s.photoCloud.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').textContent='Sin foto del conjunto';$('#furnGroupRemove').disabled=true;$('#furnGroupPhoto').value='';$('#furnGroupCamera').value='';};
+ $('#furnGroupRemove').onclick=()=>{if(!confirm('¿Eliminar la foto del conjunto?'))return;delete s.photos.furnGroup;collectMobiliario(s);save();$('#furnGroupPreview').textContent='Sin foto del conjunto';$('#furnGroupRemove').disabled=true;$('#furnGroupPhoto').value='';$('#furnGroupCamera').value='';};
  if($('#photoBefore'))bindPhoto('photoBefore',s,'before');
  if($('#photoAfter'))bindPhoto('photoAfter',s,'after');
  furnUpdate();
@@ -342,7 +307,6 @@ function renderMobiliario(s){
 function collectMobiliario(s){
  commonCollect(s);const d=s.data=s.data||{};
  ['furnTreatment','furnObs','furnBudgetRef'].forEach(k=>{const e=$('#'+k);if(e)d[k]=e.value});
- mhsObsCollect(d);
  d.furnItems=furnUIRows();d.furnPriceMode='unit';
  d.furnVolumeM3=autoFour(autoSum(d.furnItems.map(autoVolume).filter(Boolean)));
  // Campos históricos para certificados y albaranes; NO se usan para calcular precios.
@@ -393,11 +357,7 @@ function bindServiceRows(){
 function deleteService(id){const svc=state.services.find(x=>x.id===id);if(!svc)return;if(!confirm(`¿Eliminar la hoja ${svc.number||'(sin número)'} de ${svc.client?.name||'este cliente'}?`))return;if(!confirm('Esta acción eliminará la hoja de esta versión del piloto. ¿Continuar?'))return;state.services=state.services.filter(x=>x.id!==id);save();toast('Hoja eliminada');renderDashboard()}
 function renderClients(){const a=(state.clients||[]).slice().sort((x,y)=>String(x.name||'').localeCompare(String(y.name||''),'es'));app.innerHTML=`<section class="hero"><div><span class="eyebrow">CATÁLOGO</span><h1>Clientes</h1><p>Clientes recuperados y creados en el piloto.</p></div></section><section class="list-card"><div class="list-head"><h2>Clientes</h2><span class="tag">${a.length}</span></div><div class="service-list">${a.length?a.map(c=>`<div class="service-row"><div><b>${esc(c.name||'Sin nombre')}</b><br><small>${esc(c.address||'')}</small></div><div><small>${esc(c.contact||'')}</small><br>${esc(c.phone||'')}</div><div class="hide-mobile"><small>${esc(c.email||'')}</small></div><div></div><button class="btn red" data-delete-client="${c.id}">Eliminar</button></div>`).join(''):'<div class="empty">No hay clientes.</div>'}</div></section>`;app.querySelectorAll('[data-delete-client]').forEach(b=>b.onclick=()=>{const c=state.clients.find(x=>x.id===b.dataset.deleteClient);if(!c||!confirm(`¿Eliminar el cliente “${c.name}”?`))return;state.clients=state.clients.filter(x=>x.id!==c.id);save();renderClients()})}
 function renderProducts(){const a=(state.products||[]).slice().sort((x,y)=>String(x.name||'').localeCompare(String(y.name||''),'es'));app.innerHTML=`<section class="hero"><div><span class="eyebrow">CATÁLOGO</span><h1>Productos</h1><p>Productos recuperados de la aplicación anterior.</p></div></section><section class="list-card"><div class="list-head"><h2>Productos</h2><span class="tag">${a.length}</span></div><div class="service-list">${a.length?a.map(x=>`<div class="service-row"><div><b>${esc(x.name||'Sin nombre')}</b><br><small>${esc(x.maker||'')}</small></div><div><small>Registro: ${esc(x.reg||'—')}</small></div><div class="hide-mobile"><small>Cad.: ${esc(x.expiry||'—')}</small></div><div></div><button class="btn red" data-delete-product="${x.id}">Eliminar</button></div>`).join(''):'<div class="empty">No hay productos.</div>'}</div></section>`;app.querySelectorAll('[data-delete-product]').forEach(b=>b.onclick=()=>{const x=state.products.find(p=>p.id===b.dataset.deleteProduct);if(!x||!confirm(`¿Eliminar el producto “${x.name}”?`))return;state.products=state.products.filter(p=>p.id!==x.id);save();renderProducts()})}
-async function exitApp(){
- if(!confirm('¿Cerrar tu sesión de HMSARBIDE?'))return;
- try{await window.HMSSupabasePilot?.logout?.();window.location.reload();}
- catch(e){alert('No se pudo cerrar la sesión: '+(e?.message||e));}
-}
+function exitApp(){try{save()}catch{};if(confirm('Los datos locales están guardados. ¿Salir de la aplicación?')){window.close();setTimeout(()=>{app.innerHTML='<section class="hero"><div><h1>Aplicación preparada para cerrar</h1><p>Puedes cerrar esta ventana con ⌘ + Q en Mac, o con el gesto/botón habitual del dispositivo.</p></div></section>'},250)}}
 function recoveredAttachmentsSection(s){const a=(s.attachments||[]).filter(x=>x.blobId||x.legacyId);if(!a.length)return '';return `<section class="section"><h3>Documentos y fotos recuperados</h3><div class="inner"><div class="feature-list">${a.map(x=>`<div class="recovered-file"><span>📎 <b>${esc(x.name||'Adjunto')}</b> <small>${x.migrated?'· recuperado':''}</small></span><button type="button" class="btn secondary" data-open-attachment="${x.id}">Ver</button></div>`).join('')}</div></div></section>`}
 function bindRecoveredAttachments(s){app.querySelectorAll('[data-open-attachment]').forEach(b=>b.onclick=async()=>{const a=(s.attachments||[]).find(x=>x.id===b.dataset.openAttachment);if(!a||!window.MHSOffline)return;const rec=await MHSOffline.getBlob(a.blobId);if(!rec?.blob){alert('El archivo no está disponible localmente en este dispositivo.');return}const u=URL.createObjectURL(rec.blob);window.open(u,'_blank');setTimeout(()=>URL.revokeObjectURL(u),60000)})}
 function legacyJSON(key,def){try{const raw=localStorage.getItem(key);return raw===null?def:(JSON.parse(raw)??def)}catch{return def}}
@@ -553,7 +513,7 @@ bindCommon=function(s,collector,opts={}){
  if($('#certificateBtn'))$('#certificateBtn').onclick=()=>{collector(s);save();printCertificate(s)};
  if($('#billingBtn'))$('#billingBtn').onclick=()=>{collector(s);save();openBilling(s)};
  const att=$('#serviceAttachment');
- if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();/* El adjunto permanece local hasta habilitar Supabase Storage. */toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
+ if(att)att.onchange=async()=>{const f=att.files?.[0];if(!f)return;try{let blobId='';if(window.MHSOffline)blobId=await MHSOffline.storeBlob(f,{name:f.name,type:f.type,size:f.size,serviceId:s.id});s.attachments=s.attachments||[];const a={id:uid(),blobId,name:f.name,type:f.type||'application/octet-stream',size:f.size,createdAt:new Date().toISOString(),syncStatus:'pending'};s.attachments.push(a);s.updatedAt=new Date().toISOString();save();if(window.MHSOffline)await MHSOffline.enqueue('attachment',{serviceId:s.id,attachmentId:a.id,name:a.name,type:a.type,size:a.size},{blobId});toast(navigator.onLine?'Documento guardado · pendiente de sincronizar':'Documento guardado sin conexión');renderService()}catch(e){alert('No se pudo guardar el documento en este dispositivo.')}};
  bindPhoto('photoBefore',s,'before');bindPhoto('photoAfter',s,'after');
  const cn=$('#clientName');if(cn)cn.addEventListener('change',()=>{const c=(state.clients||[]).find(x=>String(x.name||'').toLowerCase()===cn.value.trim().toLowerCase());if(c){$('#clientContact').value=c.contact||'';$('#clientPhone').value=c.phone||'';$('#clientAddress').value=c.address||'';$('#clientEmail').value=c.email||'';}});
  bindRecoveredAttachments(s);
@@ -578,11 +538,11 @@ function bindClientRows(){app.querySelectorAll('[data-edit-client]').forEach(b=>
 
 renderSettings=function(){const c=state.company||{};app.innerHTML=`<section class="hero"><div><h1>Empresa / copias</h1><p>Estos datos, logotipo, sello y firma del Director Técnico se reflejan automáticamente en los documentos correspondientes.</p></div></section><div class="panel"><div class="company-media-grid"><div class="company-logo-editor"><h3>Logotipo</h3><div class="logo-preview" id="logoPreview">${c.logo?`<img src="${c.logo}" alt="Logotipo">`:'Sin logotipo'}</div><label class="btn secondary import-label">Elegir logotipo<input id="coLogo" type="file" accept="image/*" hidden></label>${c.logo?'<button class="btn red" id="coLogoDelete">Quitar logotipo</button>':''}</div><div class="company-logo-editor"><h3>Sello de empresa</h3><div class="logo-preview" id="sealPreview">${c.seal?`<img src="${c.seal}" alt="Sello de empresa">`:'Sin sello'}</div><label class="btn secondary import-label">Elegir sello escaneado<input id="coSeal" type="file" accept="image/*" hidden></label>${c.seal?'<button class="btn red" id="coSealDelete">Quitar sello</button>':''}</div><div class="company-logo-editor"><h3>Firma Director Técnico</h3><div class="logo-preview" id="directorPreview">${c.directorSignature?`<img src="${c.directorSignature}" alt="Firma Director Técnico">`:'Sin firma'}</div><label class="btn secondary import-label">Elegir firma escaneada<input id="coDirectorSignature" type="file" accept="image/*" hidden></label>${c.directorSignature?'<button class="btn red" id="coDirectorDelete">Quitar firma</button>':''}</div></div><div class="settings-grid">${field('coName','Razón social',c.name||'')}${field('coCommercial','Nombre comercial',c.commercialName||'')}${field('coTax','CIF / NIF',c.taxId||'')}${field('coAddress','Dirección',c.address||'')}${field('coPostal','Código postal',c.postalCode||'')}${field('coProvince','Provincia',c.province||'')}${field('coPhone','Teléfono',c.phone||'')}${field('coEmail','Email',c.email||'')}${field('coReg','N.º registro ROESB',c.registration||'')}${field('coDirectorName','Director Técnico · nombre',c.directorName||'')}${field('coDirectorSurname','Director Técnico · apellidos',c.directorSurname||'')}${field('serviceNext','Próximo número base de servicio',state.numbering?.serviceNext||26001,'number','min="1" step="1"')}</div><div class="cert-actions"><button class="btn" id="coSave">Guardar empresa</button><button class="btn secondary" id="coBack">Volver</button><button class="btn red" id="exportBtn">Exportar copia JSON</button><label class="btn secondary import-label">Importar copia JSON<input id="importFile" type="file" accept="application/json" hidden></label><button class="btn blue" id="legacyImportBtn">Recuperar datos de la app anterior</button></div><p class="footer-note">La recuperación de clientes, productos, hojas, fotos y documentos se mantiene intacta. Esta revisión solo amplía los datos de Empresa y su uso documental.</p></div>`;
  let pendingLogo=c.logo||'',pendingSeal=c.seal||'',pendingDirectorSignature=c.directorSignature||'';
- const bindImage=(input,preview,setter)=>{$(input).onchange=async()=>{const f=$(input).files?.[0];if(!f)return;const data=await compressImage(f);setter(data);const k=input==='#coLogo'?'logo':input==='#coSeal'?'seal':'directorSignature';state.company={...(state.company||{}),[k]:data};save();$(preview).innerHTML=`<img src="${data}" alt="Vista previa">`}};
+ const bindImage=(input,preview,setter)=>{$(input).onchange=async()=>{const f=$(input).files?.[0];if(!f)return;const data=await compressImage(f);setter(data);$(preview).innerHTML=`<img src="${data}" alt="Vista previa">`}};
  bindImage('#coLogo','#logoPreview',v=>pendingLogo=v);bindImage('#coSeal','#sealPreview',v=>pendingSeal=v);bindImage('#coDirectorSignature','#directorPreview',v=>pendingDirectorSignature=v);
- if($('#coLogoDelete'))$('#coLogoDelete').onclick=()=>{pendingLogo='';state.company={...state.company,logo:''};save();$('#logoPreview').textContent='Sin logotipo'};
- if($('#coSealDelete'))$('#coSealDelete').onclick=()=>{pendingSeal='';state.company={...state.company,seal:''};save();$('#sealPreview').textContent='Sin sello'};
- if($('#coDirectorDelete'))$('#coDirectorDelete').onclick=()=>{pendingDirectorSignature='';state.company={...state.company,directorSignature:''};save();$('#directorPreview').textContent='Sin firma'};
+ if($('#coLogoDelete'))$('#coLogoDelete').onclick=()=>{pendingLogo='';$('#logoPreview').textContent='Sin logotipo'};
+ if($('#coSealDelete'))$('#coSealDelete').onclick=()=>{pendingSeal='';$('#sealPreview').textContent='Sin sello'};
+ if($('#coDirectorDelete'))$('#coDirectorDelete').onclick=()=>{pendingDirectorSignature='';$('#directorPreview').textContent='Sin firma'};
  $('#coSave').onclick=()=>{state.company={...state.company,name:$('#coName').value.trim(),commercialName:$('#coCommercial').value.trim(),taxId:$('#coTax').value.trim(),address:$('#coAddress').value.trim(),postalCode:$('#coPostal').value.trim(),province:$('#coProvince').value.trim(),phone:$('#coPhone').value.trim(),email:$('#coEmail').value.trim(),registration:$('#coReg').value.trim(),directorName:$('#coDirectorName').value.trim(),directorSurname:$('#coDirectorSurname').value.trim(),directorSignature:pendingDirectorSignature,seal:pendingSeal,logo:pendingLogo};state.numbering={...(state.numbering||{}),serviceNext:Math.max(1,Math.trunc(Number($('#serviceNext').value)||26001))};save();toast('Empresa, sello y firma guardados')};$('#coBack').onclick=renderDashboard;$('#exportBtn').onclick=exportData;$('#importFile').onchange=importData;$('#legacyImportBtn').onclick=()=>{localStorage.removeItem('mhs_legacy_recovery_v503');runLegacyMigration()};
 }
 function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentReceipt||{},kind=r.kind||'Hoja PDF';app.innerHTML=`<div class="toolbar"><button class="btn secondary" id="docBack">← Volver a hoja</button><button class="btn" id="docSave">Guardar documento</button><button class="btn blue" id="docPrint">Imprimir / PDF</button><button class="btn secondary" id="docShare">Compartir</button><button class="btn red" id="docDelete">Eliminar documento</button></div><div class="sheet"><div class="sheet-title"><div><h1>Hoja PDF / Albarán</h1><small>${esc(typeMeta[s.type].name)} · ${esc(s.number||'')}</small></div></div><div class="sheet-body"><section class="section"><h3>Tipo de documento</h3><div class="inner"><div class="grid">${select('docKind','Generar como',['Hoja PDF','Albarán'],kind)}${field('docNo','N.º documento',r.number||(kind==='Albarán'?serviceDocNo(s,'ALB'):serviceDocNo(s,'HS')),'text','readonly class=\"readonly\"')}${field('docDate','Fecha',r.date||s.date||nowDate(),'date')}${field('docNotes','Observaciones del documento',r.notes||'')}</div><div class="notice">La misma hoja sirve como PDF técnico o como albarán. Si eliges <b>Albarán</b>, la firma de recepción es obligatoria.</div></div></section>${s.type==='mobiliario'?`<section class="section" id="docFurnGroupSection"><h3>Fotografía del conjunto para el albarán</h3><div class="inner"><div class="photo-box"><div class="photo-preview" id="docFurnGroupPreview">${s.photos?.furnGroup?`<img src="${s.photos.furnGroup}" alt="Foto del conjunto">`:'Sin foto del conjunto'}</div><label>Seleccionar fotografía de archivo <input type="file" id="docFurnGroupFile" accept="image/*"></label><label>Hacer foto con el móvil <input type="file" id="docFurnGroupCamera" accept="image/*" capture="environment"></label><button type="button" class="btn secondary" id="docFurnGroupRemove" ${s.photos?.furnGroup?'':'disabled'}>Eliminar foto del conjunto</button></div></div></section>`:''}<section class="section" id="receiptSection"><h3>Recepción · obligatoria para Albarán</h3><div class="inner"><div class="grid three">${field('docReceiver','Nombre de quien recibe',r.receiver||'')}${field('docRole','Empresa / función',r.receiverRole||'')}${field('docSignDate','Fecha / hora recepción',r.signDate||new Date().toLocaleString('es-ES'))}${field('docCarrier','Transportista / empresa (opcional)',r.carrier||'')}${field('docPlate','Matrícula (opcional)',r.plate||'')}</div><div class="field full"><label>Firma de recepción</label><canvas id="docSignature" width="700" height="220" class="signature-canvas"></canvas><div class="signature-actions"><button type="button" class="btn secondary" id="clearDocSignature">Borrar firma</button></div></div></div></section></div></div>`;
@@ -590,7 +550,7 @@ function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentRe
  if(s.type==='mobiliario'){
   const setPhoto=async input=>{
    const file=input.files?.[0];if(!file)return;
-   try{const img=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=img;if(s.photoCloud)delete s.photoCloud.furnGroup;s.updatedAt=new Date().toISOString();save();
+   try{const img=await compressImage(file);s.photos=s.photos||{};s.photos.furnGroup=img;s.updatedAt=new Date().toISOString();save();
     $('#docFurnGroupPreview').innerHTML=`<img src="${img}" alt="Foto del conjunto">`;
     $('#docFurnGroupRemove').disabled=false;toast('Fotografía del conjunto guardada');
    }catch(err){alert('No se pudo guardar la fotografía: '+(err?.message||err))}finally{input.value=''}
@@ -599,7 +559,7 @@ function openServiceDocument(s){const r=s.data.documentReceipt=s.data.documentRe
   $('#docFurnGroupCamera').onchange=e=>setPhoto(e.target);
   $('#docFurnGroupRemove').onclick=()=>{
    if(!confirm('¿Eliminar la fotografía del conjunto?'))return;
-   if(s.photos)delete s.photos.furnGroup;if(s.photoCloud)delete s.photoCloud.furnGroup;
+   if(s.photos)delete s.photos.furnGroup;
    s.updatedAt=new Date().toISOString();save();
    $('#docFurnGroupPreview').textContent='Sin foto del conjunto';
    $('#docFurnGroupRemove').disabled=true;
@@ -616,14 +576,14 @@ renderArea=function(area){if(area==='facturacion')return renderInvoices();if(are
 function renderInvoices(){state.invoices=Array.isArray(state.invoices)?state.invoices:[];const list=state.invoices.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));app.innerHTML=`<section class="hero"><div><span class="eyebrow">FACTURACIÓN</span><h1>Facturas</h1><p>Crea facturas y vincúlalas a un cliente y, si procede, a una hoja de servicio.</p></div><div class="hero-actions"><button class="btn" id="addInvoice">+ Añadir factura</button></div></section><section class="list-card"><div class="list-head"><h2>Facturas</h2><span class="tag">${list.length}</span></div><div class="service-list">${list.length?list.map(invoiceRowHtml).join(''):'<div class="empty">Todavía no hay facturas.</div>'}</div></section>`;$('#addInvoice').onclick=()=>openInvoiceForm();bindInvoiceRows()}
 function invoiceRowHtml(i){const client=state.clients.find(c=>c.id===i.clientId);return `<div class="service-row"><div><b>${esc(i.number||'Sin número')}</b><br><small>${esc(client?.name||i.clientName||'Sin cliente')}</small></div><div><small>${esc(i.date||'')}</small><br>${esc(i.concept||'')}</div><div><span class="tag ${i.status==='EMITIDA'?'done':'pending'}">${esc(i.status||'BORRADOR')}</span></div><div><b>${money(Number(i.total)||0)}</b></div><div class="row-actions"><button class="btn secondary" data-edit-invoice="${i.id}">Editar</button><button class="btn blue" data-print-invoice="${i.id}">PDF</button><button class="btn secondary" data-share-invoice="${i.id}">Compartir</button><button class="btn red" data-delete-invoice="${i.id}">Eliminar</button></div></div>`}
 function bindInvoiceRows(){app.querySelectorAll('[data-share-invoice]').forEach(b=>b.onclick=()=>{const i=state.invoices.find(x=>x.id===b.dataset.shareInvoice),c=state.clients.find(x=>x.id===i?.clientId);if(i)shareDocument({title:'Factura',text:`Factura ${i.number||''} · ${c?.name||''} · Total ${money(Number(i.total)||0)}`,filename:`${String(i.number||'factura').replaceAll(' ','_')}.txt`})});app.querySelectorAll('[data-edit-invoice]').forEach(b=>b.onclick=()=>openInvoiceForm(b.dataset.editInvoice));app.querySelectorAll('[data-print-invoice]').forEach(b=>b.onclick=()=>printInvoice(state.invoices.find(i=>i.id===b.dataset.printInvoice)));app.querySelectorAll('[data-delete-invoice]').forEach(b=>b.onclick=()=>{const i=state.invoices.find(x=>x.id===b.dataset.deleteInvoice);if(!i||!confirm(`¿Eliminar la factura ${i.number||''}?`))return;state.invoices=state.invoices.filter(x=>x.id!==i.id);save();renderInvoices()})}
-function openInvoiceForm(id=''){const old=state.invoices.find(i=>i.id===id),i=old||{id:uid(),number:'',date:nowDate(),clientId:'',serviceId:'',concept:'',base:'',vat:'21',status:'BORRADOR',notes:''};const clientOpts=['<option value="">Selecciona cliente</option>',...state.clients.map(c=>`<option value="${c.id}" ${c.id===i.clientId?'selected':''}>${esc(c.name)}</option>`)].join('');const serviceOpts=['<option value="">Sin hoja vinculada</option>',...state.services.map(s=>`<option value="${s.id}" ${s.id===i.serviceId?'selected':''}>${esc(s.number||'Sin número')} · ${esc(typeMeta[s.type]?.name||s.type)} · ${esc(s.client?.name||'')}</option>`)].join('');app.innerHTML=`<section class="hero"><div><h1>${old?'Editar factura':'Añadir factura'}</h1><p>La factura queda guardada en el piloto y puede vincularse con una hoja de servicio.</p></div></section><section class="panel"><div class="settings-grid">${field('invNo','N.º factura',i.number)}${field('invDate','Fecha',i.date,'date')}<div class="field"><label>Cliente</label><select id="invClient">${clientOpts}</select></div><div class="field"><label>Hoja vinculada</label><select id="invService">${serviceOpts}</select></div>${field('invConcept','Concepto',i.concept)}${field('invBase','Base imponible (€)',i.base,'text','inputmode="decimal"')}${select('invVat','IVA (%)',['21','10'],String(i.vat||'21'))}${select('invStatus','Estado',['BORRADOR','EMITIDA'],i.status||'BORRADOR')}${textarea('invNotes','Observaciones',i.notes||'')}</div><div class="totals"><div class="total"><span>Base</span><strong id="invBaseOut">—</strong></div><div class="total"><span>IVA</span><strong id="invVatOut">—</strong></div><div class="total"><span>Total</span><strong id="invTotalOut">—</strong></div></div><div class="cert-actions"><button class="btn" id="invSave">Guardar factura</button><button class="btn secondary" id="invCancel">Cancelar</button>${old?'<button class="btn blue" id="invPrint">Imprimir / PDF</button><button class="btn secondary" id="invShare">Compartir</button>':''}</div></section>`;const calc=()=>{const base=num($('#invBase').value)||0,vat=num($('#invVat').value)||0;$('#invBaseOut').textContent=money(base);$('#invVatOut').textContent=money(base*vat/100);$('#invTotalOut').textContent=money(base*(1+vat/100))};$('#invBase').oninput=calc;$('#invVat').oninput=calc;calc();$('#invService').onchange=()=>{const s=state.services.find(x=>x.id===$('#invService').value);if(s){const c=state.clients.find(x=>String(x.name||'').toLowerCase()===String(s.client?.name||'').toLowerCase());if(c)$('#invClient').value=c.id;if(!$('#invConcept').value)$('#invConcept').value=`${typeMeta[s.type]?.name||s.type} · hoja ${s.number||''}`;$('#invNo').value=serviceDocNo(s,'FRA')}};$('#invSave').onclick=()=>{const base=num($('#invBase').value)||0,vat=num($('#invVat').value)||0,obj={...i,number:$('#invNo').value.trim(),date:$('#invDate').value,clientId:$('#invClient').value,serviceId:$('#invService').value,concept:$('#invConcept').value.trim(),base,vat,status:$('#invStatus').value,notes:$('#invNotes').value.trim(),total:base*(1+vat/100),updatedAt:new Date().toISOString()};const autoId=$('#invSave')?.dataset.mhsAutosaveId;if(autoId&&!old)obj.id=autoId;if(old||autoId)state.invoices=state.invoices.map(x=>x.id===obj.id?obj:x);else state.invoices.push(obj);save();toast('Factura guardada');renderInvoices()};$('#invCancel').onclick=renderInvoices;if($('#invPrint'))$('#invPrint').onclick=()=>printInvoice(state.invoices.find(x=>x.id===i.id)||i);if($('#invShare'))$('#invShare').onclick=()=>{const x=state.invoices.find(x=>x.id===i.id)||i,c=state.clients.find(c=>c.id===x.clientId);shareDocument({title:'Factura',text:`Factura ${x.number||''} · ${c?.name||''} · Total ${money(Number(x.total)||0)}`,filename:`${String(x.number||'factura').replaceAll(' ','_')}.txt`})}}
+function openInvoiceForm(id=''){const old=state.invoices.find(i=>i.id===id),i=old||{id:uid(),number:'',date:nowDate(),clientId:'',serviceId:'',concept:'',base:'',vat:'21',status:'BORRADOR',notes:''};const clientOpts=['<option value="">Selecciona cliente</option>',...state.clients.map(c=>`<option value="${c.id}" ${c.id===i.clientId?'selected':''}>${esc(c.name)}</option>`)].join('');const serviceOpts=['<option value="">Sin hoja vinculada</option>',...state.services.map(s=>`<option value="${s.id}" ${s.id===i.serviceId?'selected':''}>${esc(s.number||'Sin número')} · ${esc(typeMeta[s.type]?.name||s.type)} · ${esc(s.client?.name||'')}</option>`)].join('');app.innerHTML=`<section class="hero"><div><h1>${old?'Editar factura':'Añadir factura'}</h1><p>La factura queda guardada en el piloto y puede vincularse con una hoja de servicio.</p></div></section><section class="panel"><div class="settings-grid">${field('invNo','N.º factura',i.number)}${field('invDate','Fecha',i.date,'date')}<div class="field"><label>Cliente</label><select id="invClient">${clientOpts}</select></div><div class="field"><label>Hoja vinculada</label><select id="invService">${serviceOpts}</select></div>${field('invConcept','Concepto',i.concept)}${field('invBase','Base imponible (€)',i.base,'text','inputmode="decimal"')}${select('invVat','IVA (%)',['21','10'],String(i.vat||'21'))}${select('invStatus','Estado',['BORRADOR','EMITIDA'],i.status||'BORRADOR')}${textarea('invNotes','Observaciones',i.notes||'')}</div><div class="totals"><div class="total"><span>Base</span><strong id="invBaseOut">—</strong></div><div class="total"><span>IVA</span><strong id="invVatOut">—</strong></div><div class="total"><span>Total</span><strong id="invTotalOut">—</strong></div></div><div class="cert-actions"><button class="btn" id="invSave">Guardar factura</button><button class="btn secondary" id="invCancel">Cancelar</button>${old?'<button class="btn blue" id="invPrint">Imprimir / PDF</button><button class="btn secondary" id="invShare">Compartir</button>':''}</div></section>`;const calc=()=>{const base=num($('#invBase').value)||0,vat=num($('#invVat').value)||0;$('#invBaseOut').textContent=money(base);$('#invVatOut').textContent=money(base*vat/100);$('#invTotalOut').textContent=money(base*(1+vat/100))};$('#invBase').oninput=calc;$('#invVat').oninput=calc;calc();$('#invService').onchange=()=>{const s=state.services.find(x=>x.id===$('#invService').value);if(s){const c=state.clients.find(x=>String(x.name||'').toLowerCase()===String(s.client?.name||'').toLowerCase());if(c)$('#invClient').value=c.id;if(!$('#invConcept').value)$('#invConcept').value=`${typeMeta[s.type]?.name||s.type} · hoja ${s.number||''}`;$('#invNo').value=serviceDocNo(s,'FRA')}};$('#invSave').onclick=()=>{const base=num($('#invBase').value)||0,vat=num($('#invVat').value)||0,obj={...i,number:$('#invNo').value.trim(),date:$('#invDate').value,clientId:$('#invClient').value,serviceId:$('#invService').value,concept:$('#invConcept').value.trim(),base,vat,status:$('#invStatus').value,notes:$('#invNotes').value.trim(),total:base*(1+vat/100),updatedAt:new Date().toISOString()};if(old)state.invoices=state.invoices.map(x=>x.id===obj.id?obj:x);else state.invoices.push(obj);save();toast('Factura guardada');renderInvoices()};$('#invCancel').onclick=renderInvoices;if($('#invPrint'))$('#invPrint').onclick=()=>printInvoice(state.invoices.find(x=>x.id===i.id)||i);if($('#invShare'))$('#invShare').onclick=()=>{const x=state.invoices.find(x=>x.id===i.id)||i,c=state.clients.find(c=>c.id===x.clientId);shareDocument({title:'Factura',text:`Factura ${x.number||''} · ${c?.name||''} · Total ${money(Number(x.total)||0)}`,filename:`${String(x.number||'factura').replaceAll(' ','_')}.txt`})}}
 function printInvoice(i){if(!i)return;const c=state.clients.find(x=>x.id===i.clientId),base=Number(i.base)||0,vat=Number(i.vat)||0;printDoc(i.status==='EMITIDA'?'FACTURA':'BORRADOR DE FACTURA',`${companyHeaderHtml()}${i.status!=='EMITIDA'?'<div class="draft">BORRADOR</div>':''}<h2>${esc(c?.name||'Cliente')}</h2><p>${esc(c?.taxId||'')}<br>${esc([c?.address,c?.postalCode,c?.province].filter(Boolean).join(' · '))}<br>${esc(c?.email||'')} · ${esc(c?.phone||'')}</p><p><b>N.º:</b> ${esc(i.number||'')} · <b>Fecha:</b> ${esc(i.date||'')}</p><table><tr><th>Concepto</th><th>Base</th></tr><tr><td>${esc(i.concept||'Servicio')}</td><td>${money(base)}</td></tr></table><div class="tot"><p>Base: <b>${money(base)}</b></p><p>IVA ${vat}%: <b>${money(base*vat/100)}</b></p><p>Total: <b>${money(base*(1+vat/100))}</b></p></div>${c?.paymentMethod?`<p><b>Forma de pago:</b> ${esc(c.paymentMethod)}${c.iban?` · IBAN ${esc(maskIban(c.iban))}`:''}</p>`:''}${i.notes?`<p class="note">${esc(i.notes)}</p>`:''}`)}
 
 
 function renderBudgets(){state.budgets=Array.isArray(state.budgets)?state.budgets:[];const list=state.budgets.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));app.innerHTML=`<section class="hero"><div><span class="eyebrow">PRESUPUESTOS</span><h1>Presupuestos</h1><p>La numeración es independiente de los servicios: PREAAAAMMDD y sufijo si hay varios el mismo día.</p></div><div class="hero-actions"><button class="btn" id="addBudget">+ Añadir presupuesto</button></div></section><section class="list-card"><div class="list-head"><h2>Presupuestos</h2><span class="tag">${list.length}</span></div><div class="service-list">${list.length?list.map(budgetRowHtml).join(''):'<div class="empty">Todavía no hay presupuestos.</div>'}</div></section>`;$('#addBudget').onclick=()=>openBudgetForm();bindBudgetRows()}
 function budgetRowHtml(b){const c=state.clients.find(x=>x.id===b.clientId);return `<div class="service-row"><div><b>${esc(b.number)}</b><br><small>${esc(c?.name||b.clientName||'Sin cliente')}</small></div><div><small>${esc(b.date||'')}</small><br>${esc(b.concept||'')}</div><div><span class="tag ${b.status==='ACEPTADO'?'done':'pending'}">${esc(b.status||'BORRADOR')}</span></div><div><b>${money(Number(b.total)||0)}</b></div><div class="row-actions"><button class="btn secondary" data-edit-budget="${b.id}">Editar</button><button class="btn blue" data-print-budget="${b.id}">PDF</button><button class="btn secondary" data-share-budget="${b.id}">Compartir</button><button class="btn red" data-delete-budget="${b.id}">Eliminar</button></div></div>`}
 function bindBudgetRows(){app.querySelectorAll('[data-edit-budget]').forEach(x=>x.onclick=()=>openBudgetForm(x.dataset.editBudget));app.querySelectorAll('[data-print-budget]').forEach(x=>x.onclick=()=>printBudget(state.budgets.find(b=>b.id===x.dataset.printBudget)));app.querySelectorAll('[data-share-budget]').forEach(x=>x.onclick=()=>{const b=state.budgets.find(y=>y.id===x.dataset.shareBudget),c=state.clients.find(y=>y.id===b?.clientId);if(b)shareDocument({title:'Presupuesto',text:`Presupuesto ${b.number} · ${c?.name||''} · Total ${money(Number(b.total)||0)}`,filename:`${b.number}.txt`})});app.querySelectorAll('[data-delete-budget]').forEach(x=>x.onclick=()=>{const b=state.budgets.find(y=>y.id===x.dataset.deleteBudget);if(b&&confirm(`¿Eliminar el presupuesto ${b.number}?`)){state.budgets=state.budgets.filter(y=>y.id!==b.id);save();renderBudgets()}})}
-function openBudgetForm(id=''){const old=state.budgets.find(b=>b.id===id),b=old||{id:uid(),date:nowDate(),number:budgetNumber(nowDate()),clientId:'',concept:'',base:'',vat:'21',status:'BORRADOR',notes:''};const opts=['<option value="">Selecciona cliente</option>',...state.clients.map(c=>`<option value="${c.id}" ${c.id===b.clientId?'selected':''}>${esc(c.name)}</option>`)].join('');app.innerHTML=`<section class="hero"><div><h1>${old?'Editar presupuesto':'Añadir presupuesto'}</h1><p>Los presupuestos no consumen numeración de servicio hasta que se convierten en un trabajo aceptado.</p></div></section><section class="panel"><div class="settings-grid">${field('budNo','N.º presupuesto',b.number,'text','readonly class="readonly"')}${field('budDate','Fecha',b.date,'date')}<div class="field"><label>Cliente</label><select id="budClient">${opts}</select></div>${field('budConcept','Concepto',b.concept)}${field('budBase','Base imponible (€)',b.base,'text','inputmode="decimal"')}${field('budVat','IVA (%)',b.vat,'text','inputmode="decimal"')}${select('budStatus','Estado',['BORRADOR','ENVIADO','ACEPTADO','RECHAZADO'],b.status||'BORRADOR')}${textarea('budNotes','Observaciones',b.notes||'')}</div><div class="totals"><div class="total"><span>Base</span><strong id="budBaseOut">—</strong></div><div class="total"><span>IVA</span><strong id="budVatOut">—</strong></div><div class="total"><span>Total</span><strong id="budTotalOut">—</strong></div></div><div class="cert-actions"><button class="btn" id="budSave">Guardar presupuesto</button><button class="btn secondary" id="budCancel">Cancelar</button>${old?'<button class="btn blue" id="budPrint">Imprimir / PDF</button><button class="btn secondary" id="budShare">Compartir</button>':''}</div></section>`;const calc=()=>{const base=num($('#budBase').value)||0,vat=num($('#budVat').value)||0;$('#budBaseOut').textContent=money(base);$('#budVatOut').textContent=money(base*vat/100);$('#budTotalOut').textContent=money(base*(1+vat/100))};$('#budBase').oninput=calc;$('#budVat').oninput=calc;$('#budDate').onchange=()=>{if(!old)$('#budNo').value=budgetNumber($('#budDate').value)};calc();$('#budSave').onclick=()=>{const base=num($('#budBase').value)||0,vat=num($('#budVat').value)||0,obj={...b,number:$('#budNo').value,date:$('#budDate').value,clientId:$('#budClient').value,concept:$('#budConcept').value.trim(),base,vat,status:$('#budStatus').value,notes:$('#budNotes').value.trim(),total:base*(1+vat/100),updatedAt:new Date().toISOString()};const autoId=$('#budSave')?.dataset.mhsAutosaveId;if(autoId&&!old)obj.id=autoId;if(old||autoId)state.budgets=state.budgets.map(x=>x.id===obj.id?obj:x);else state.budgets.push(obj);save();toast('Presupuesto guardado');renderBudgets()};$('#budCancel').onclick=renderBudgets;if($('#budPrint'))$('#budPrint').onclick=()=>printBudget(state.budgets.find(x=>x.id===b.id)||b);if($('#budShare'))$('#budShare').onclick=()=>{const x=state.budgets.find(x=>x.id===b.id)||b,c=state.clients.find(c=>c.id===x.clientId);shareDocument({title:'Presupuesto',text:`Presupuesto ${x.number} · ${c?.name||''} · Total ${money(Number(x.total)||0)}`,filename:`${x.number}.txt`})}}
+function openBudgetForm(id=''){const old=state.budgets.find(b=>b.id===id),b=old||{id:uid(),date:nowDate(),number:budgetNumber(nowDate()),clientId:'',concept:'',base:'',vat:'21',status:'BORRADOR',notes:''};const opts=['<option value="">Selecciona cliente</option>',...state.clients.map(c=>`<option value="${c.id}" ${c.id===b.clientId?'selected':''}>${esc(c.name)}</option>`)].join('');app.innerHTML=`<section class="hero"><div><h1>${old?'Editar presupuesto':'Añadir presupuesto'}</h1><p>Los presupuestos no consumen numeración de servicio hasta que se convierten en un trabajo aceptado.</p></div></section><section class="panel"><div class="settings-grid">${field('budNo','N.º presupuesto',b.number,'text','readonly class="readonly"')}${field('budDate','Fecha',b.date,'date')}<div class="field"><label>Cliente</label><select id="budClient">${opts}</select></div>${field('budConcept','Concepto',b.concept)}${field('budBase','Base imponible (€)',b.base,'text','inputmode="decimal"')}${field('budVat','IVA (%)',b.vat,'text','inputmode="decimal"')}${select('budStatus','Estado',['BORRADOR','ENVIADO','ACEPTADO','RECHAZADO'],b.status||'BORRADOR')}${textarea('budNotes','Observaciones',b.notes||'')}</div><div class="totals"><div class="total"><span>Base</span><strong id="budBaseOut">—</strong></div><div class="total"><span>IVA</span><strong id="budVatOut">—</strong></div><div class="total"><span>Total</span><strong id="budTotalOut">—</strong></div></div><div class="cert-actions"><button class="btn" id="budSave">Guardar presupuesto</button><button class="btn secondary" id="budCancel">Cancelar</button>${old?'<button class="btn blue" id="budPrint">Imprimir / PDF</button><button class="btn secondary" id="budShare">Compartir</button>':''}</div></section>`;const calc=()=>{const base=num($('#budBase').value)||0,vat=num($('#budVat').value)||0;$('#budBaseOut').textContent=money(base);$('#budVatOut').textContent=money(base*vat/100);$('#budTotalOut').textContent=money(base*(1+vat/100))};$('#budBase').oninput=calc;$('#budVat').oninput=calc;$('#budDate').onchange=()=>{if(!old)$('#budNo').value=budgetNumber($('#budDate').value)};calc();$('#budSave').onclick=()=>{const base=num($('#budBase').value)||0,vat=num($('#budVat').value)||0,obj={...b,number:$('#budNo').value,date:$('#budDate').value,clientId:$('#budClient').value,concept:$('#budConcept').value.trim(),base,vat,status:$('#budStatus').value,notes:$('#budNotes').value.trim(),total:base*(1+vat/100),updatedAt:new Date().toISOString()};if(old)state.budgets=state.budgets.map(x=>x.id===obj.id?obj:x);else state.budgets.push(obj);save();toast('Presupuesto guardado');renderBudgets()};$('#budCancel').onclick=renderBudgets;if($('#budPrint'))$('#budPrint').onclick=()=>printBudget(state.budgets.find(x=>x.id===b.id)||b);if($('#budShare'))$('#budShare').onclick=()=>{const x=state.budgets.find(x=>x.id===b.id)||b,c=state.clients.find(c=>c.id===x.clientId);shareDocument({title:'Presupuesto',text:`Presupuesto ${x.number} · ${c?.name||''} · Total ${money(Number(x.total)||0)}`,filename:`${x.number}.txt`})}}
 function printBudget(b){if(!b)return;const c=state.clients.find(x=>x.id===b.clientId),base=Number(b.base)||0,vat=Number(b.vat)||0;printDoc('PRESUPUESTO',`${companyHeaderHtml()}<h2>${esc(c?.name||'Cliente')}</h2><p>${esc(c?.taxId||'')}<br>${esc([c?.address,c?.postalCode,c?.province].filter(Boolean).join(' · '))}</p><p><b>N.º:</b> ${esc(b.number)} · <b>Fecha:</b> ${esc(b.date)}</p><table><tr><th>Concepto</th><th>Base</th></tr><tr><td>${esc(b.concept||'Servicio')}</td><td>${money(base)}</td></tr></table><div class="tot"><p>Base: <b>${money(base)}</b></p><p>IVA ${vat}%: <b>${money(base*vat/100)}</b></p><p>Total: <b>${money(base*(1+vat/100))}</b></p></div>${b.notes?`<p class="note">${esc(b.notes)}</p>`:''}${companyValidationHtml()}`)}
 
 printDoc=function(title,body){const c=state.company||{},w=window.open('','_blank');if(!w){alert('Permite ventanas emergentes para imprimir.');return}w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Arial,sans-serif;color:#203129;font-size:11pt;background:#e9ecea;padding:24px}.a4-page{position:relative;width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:14mm;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow:hidden}header{border-bottom:3px solid #0f7a49;padding-bottom:10px;margin-bottom:20px;display:flex;gap:12px;align-items:center}header img{max-width:100px;max-height:60px;object-fit:contain}h1{color:#0f7a49;margin:0;font-size:21pt}h2{color:#27543d}.meta{font-size:9pt;color:#64776d}.company-doc-head{display:flex;gap:12px;align-items:center;border:1px solid #d5e1db;border-radius:8px;padding:10px;margin:8px 0 18px}.company-doc-head img{max-width:100px;max-height:60px}.company-doc-head small{display:block;color:#64776d}.big{font-size:17pt;font-weight:800;border:1px solid #bdd5c7;padding:12px;border-radius:8px;background:#f3f8f5;margin:15px 0}.sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:60px}.sign span{border-top:1px solid #777;padding-top:6px;text-align:center}.draft{position:absolute;right:20mm;top:35mm;font-size:30pt;color:#b44;opacity:.18;transform:rotate(-12deg);font-weight:900}table{width:100%;border-collapse:collapse;margin:15px 0}th,td{border:1px solid #ccc;padding:9px;text-align:left}.tot{text-align:right;font-size:12pt}.note{font-size:9pt;color:#5f6f67;border:1px solid #ddd;padding:10px;border-radius:8px}footer{margin-top:40px;border-top:1px solid #ccc;padding-top:8px;font-size:8pt;color:#666}.preview-actions{position:sticky;top:12px;z-index:2;display:flex;justify-content:center;gap:8px;margin-bottom:14px}.preview-actions button{border:0;border-radius:9px;padding:10px 14px;background:#0f7a49;color:#fff;font-weight:700;cursor:pointer}.preview-actions button.secondary{background:#fff;color:#0f7a49;border:1px solid #9fc7b0}@media(max-width:900px){body{padding:12px}.a4-page{width:100%;min-height:auto;padding:clamp(14px,4vw,32px);box-shadow:0 4px 18px rgba(0,0,0,.14)}h1{font-size:18pt}.sign{grid-template-columns:1fr;gap:18px;margin-top:36px}}@media print{body{background:#fff;padding:0}.preview-actions{display:none!important}.a4-page{width:210mm;min-height:297mm;margin:0;box-shadow:none;padding:14mm;overflow:visible}}</style></head><body><div class="preview-actions"><button onclick="window.print()">Imprimir / Guardar PDF</button><button class="secondary" onclick="window.close()">Cerrar</button></div><main class="a4-page"><header>${c.logo?`<img src="${c.logo}" alt="Logo">`:''}<div><h1>${esc(title)}</h1><div class="meta">${esc(c.commercialName||c.name||'Empresa')}${c.name&&c.commercialName?` · ${esc(c.name)}`:''}${c.taxId?` · ${esc(c.taxId)}`:''}${c.registration?` · ROESB ${esc(c.registration)}`:''}<br>${esc([c.address,c.postalCode,c.province].filter(Boolean).join(' · '))}</div></div></header>${body}<footer>Generado desde Mis Hojas de Servicio · Piloto v51</footer></main></body></html>`);w.document.close()};
@@ -631,70 +591,16 @@ printDoc=function(title,body){const c=state.company||{},w=window.open('','_blank
 if(window.MHSOffline){
  MHSOffline.loadState().then(saved=>{if(saved&&Array.isArray(saved.services)){const localStamp=Math.max(0,...(state.services||[]).map(x=>Date.parse(x.updatedAt)||0));const idbStamp=Math.max(0,...saved.services.map(x=>Date.parse(x.updatedAt)||0));if(idbStamp>localStamp){state=saved;try{db.set(state)}catch{};renderDashboard()}}}).catch(()=>{});
 }
-// Completar la lectura durable ANTES de solicitar cualquier descarga de Supabase.
-// Si hay divergencia entre localStorage e IndexedDB, priorizar IndexedDB (persistencia principal).
-const localReady=(async()=>{
- // Solicitar almacenamiento persistente cuando el navegador lo admita.
- // No incrementa artificialmente la cuota ni impide iniciar sesión si es denegado.
- if(navigator.storage?.persist){
-  try{await navigator.storage.persist()}catch(e){console.warn('Persistencia opcional no concedida',e)}
- }
- if(!window.MHSOffline?.loadState)return;
- const saved=await MHSOffline.loadState();
- if(saved&&Array.isArray(saved.services)){
-  state=saved;
-  try{db.set(state)}catch(e){console.warn('localStorage sin cuota; IndexedDB sigue intacto',e)}
-  renderDashboard();
- }
-})();
 window.MHSApp={
- ready:localReady,
- // Incorporar referencias remotas sin invocar el evento de cambios ni sobrescribir fotos locales.
- registerCloudFiles:async(updates)=>{
-  for(const update of updates||[]){
-   const item=state.services.find(x=>String(x.id)===String(update.id));if(!item)continue;
-   // No vincular una subida antigua si el usuario cambió la foto durante la petición.
-   item.photoCloud=item.photoCloud||{};
-   for(const [key,ref] of Object.entries(update.photoCloud||{})){
-    const actual=item.photos?.[key];
-    if(typeof actual==='string'&&actual.startsWith('data:')){
-     const bytes=new TextEncoder().encode(actual);
-     const hash=await crypto.subtle.digest('SHA-256',bytes);
-     const sha=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
-     if(ref.sha===sha)item.photoCloud[key]=ref;
-    }
-   }
-   for(const linked of update.attachments||[]){
-    const local=(item.attachments||[]).find(x=>String(x.id)===String(linked.id));
-    if(local&&linked.remotePath){local.remotePath=linked.remotePath;local.localOnly=false;local.syncStatus='synced';}
-   }
-  }
-  if(window.MHSOffline?.saveState)await MHSOffline.saveState(state);
-  try{db.set(state)}catch(e){console.warn('localStorage secundario lleno',e)}
- },
- getState:()=>typeof structuredClone==='function'?structuredClone(state):JSON.parse(JSON.stringify(state)),
+ getState:()=>JSON.parse(JSON.stringify(state)),
  applyRemoteState:async(remote,{source='remote'}={})=>{
   if(!remote||!Array.isArray(remote.services))return false;
-  const combined={...state};
-  for(const kind of ['services','clients','products','invoices','budgets']){
-   const byId=new Map((Array.isArray(state[kind])?state[kind]:[]).filter(x=>x?.id).map(x=>[String(x.id),x]));
-   for(const item of Array.isArray(remote[kind])?remote[kind]:[]){
-    if(!item||!item.id)continue;
-    const id=String(item.id),old=byId.get(id);
-    if(!old||(Date.parse(item.updatedAt||'')||0)>(Date.parse(old.updatedAt||'')||0))byId.set(id,item);
-   }
-   combined[kind]=[...byId.values()];
-  }
-  const lc=state.company||{},rc=remote.company||{};
-  combined.company={...rc,...Object.fromEntries(Object.entries(lc).filter(([,v])=>v!==null&&v!==undefined&&v!==''))};
-  combined.numbering={...(remote.numbering||{}),...(state.numbering||{}),serviceNext:Math.max(26001,Number(state.numbering?.serviceNext)||0,Number(remote.numbering?.serviceNext)||0)};
-  // No falla por limites del localStorage: persistir primero la copia integra en IndexedDB.
-  // No actualizar la memoria si la persistencia principal falla.
-  if(!window.MHSOffline?.saveState)throw Error('El almacenamiento duradero IndexedDB no esta disponible.');
-  await MHSOffline.saveState(combined);
-  try{db.set(combined)}catch(e){console.warn('localStorage secundario lleno',e)}
-  state=combined;
-  renderDashboard();return true;
+  state=remote;
+  try{db.set(state)}catch(e){console.warn('No se pudo actualizar localStorage',e)}
+  if(window.MHSOffline)await MHSOffline.saveState(state).catch(()=>{});
+  renderDashboard();
+  if(source==='cloudflare')toast('Datos actualizados desde Cloudflare');
+  return true;
  }
 };
 window.dispatchEvent(new CustomEvent('mhs-app-ready'));
@@ -714,7 +620,7 @@ const apSafe=v=>String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>'
 const apMoney=v=>Number(v||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2});
 const ap4=v=>Number.isFinite(num(v))?fmt4(num(v)):'0,0000';
 const apClient=s=>{const cat=(state.clients||[]).find(x=>String(x.name||'').trim().toLowerCase()===String(s.client?.name||'').trim().toLowerCase())||{};const own=s.client||{};return {...cat,...Object.fromEntries(Object.entries(own).filter(([k,v])=>String(v??'').trim()!=='')),name:own.name||cat.name||''}};
-function apPreview(filename,fields,{title='',draft=false,media=[],readable=false,obsAnnex=null}={}){
+function apPreview(filename,fields,{title='',draft=false,media=[],readable=false,annexPages=[]}={}){
  const el=(x,y,value,width=110,size=7,style='')=>{
   let v=String(value??'').trim();if(!v)return '';
   const desired=readable?Math.min(10,Math.max(8.3,size+1.8)):size;
@@ -726,14 +632,13 @@ function apPreview(filename,fields,{title='',draft=false,media=[],readable=false
  const url=apSafe(new URL('approved-backgrounds/'+filename,location.href).href);
  const mediaImg=m=>{const inset=1.5;return `<img class="ap-media" alt="Fotografía del mueble" src="${m.src}" style="left:${((m.x+inset)/595.276*100).toFixed(5)}%;top:${((m.y+inset)/841.89*100).toFixed(5)}%;width:${((m.w-2*inset)/595.276*100).toFixed(5)}%;height:${((m.h-2*inset)/841.89*100).toFixed(5)}%">`};
  const content=pages.map((fs,pageIndex)=>`<main class="ap-sheet"><img class="ap-template" alt="Modelo aprobado" src="${url}">${fs.map(f=>el(...f)).join('')}${media.filter(m=>(m.page===undefined||m.page===pageIndex)&&/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(m.src||'')).map(mediaImg).join('')}${draft?'<div class="ap-watermark">BORRADOR</div>':''}</main>`).join('');
- const annexHtml=obsAnnex?`<main class="ap-sheet ap-annex"><div class="ap-annex-content"><h1>ANEXO · OBSERVACIONES Y PRODUCTO BIOCIDA</h1><p>Hoja ${apSafe(obsAnnex.number)}</p><h2>Observaciones</h2><div class="ap-annex-obs">${apSafe(obsAnnex.observations)}</div><h2>Información del producto biocida</h2><table><tbody><tr><th>Producto</th><td>${apSafe(obsAnnex.product)}</td></tr><tr><th>N.º de registro</th><td>${apSafe(obsAnnex.registration)}</td></tr><tr><th>Propiedad biocida</th><td>${apSafe(obsAnnex.properties)}</td></tr><tr><th>Materias activas</th><td>${apSafe(obsAnnex.actives)}</td></tr><tr><th>Nanomateriales</th><td>${apSafe(obsAnnex.nano)}</td></tr><tr><th>Instrucciones de uso</th><td>${apSafe(obsAnnex.instructions)}</td></tr></tbody></table></div></main>`:'';
+ const annexHtml=annexPages.map(p=>`<main class="ap-sheet ap-annex">${p}</main>`).join('');
  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${apSafe(title)}</title><style>
  @page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;font-family:Arial,Helvetica,sans-serif}body{background:#d7dedb;padding:10px}
  .ap-sheet{width:min(210mm,100%);aspect-ratio:595.276/841.89;position:relative;margin:0 auto;background:white;box-shadow:0 4px 17px #0003;overflow:hidden}
  .ap-sheet+.ap-sheet{margin-top:12px}.ap-template{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
  .ap-field{position:absolute;color:#101610;line-height:1.12;white-space:nowrap;overflow:hidden;font-weight:400}
- .ap-annex{height:auto;min-height:297mm;aspect-ratio:auto;overflow:visible}.ap-annex-content{padding:18mm 17mm;font-size:10pt;line-height:1.4;overflow-wrap:anywhere}.ap-annex-content h1{font-size:15pt;color:#192e43;margin:0 0 16px}.ap-annex-content h2{font-size:11pt;color:#192e43;margin:20px 0 8px}.ap-annex-obs{white-space:pre-wrap}.ap-annex table{border-collapse:collapse;width:100%;table-layout:fixed}.ap-annex th,.ap-annex td{border:1px solid #999;padding:8px;text-align:left;vertical-align:top}.ap-annex th{width:30%}
- .ap-media{position:absolute;object-fit:contain;object-position:center center;display:block;background:white;border:0}.ap-watermark{position:absolute;top:46%;left:25%;transform:rotate(-25deg);font-size:30pt;font-weight:800;color:#b22;opacity:.25}
+ .ap-media{position:absolute;object-fit:contain;object-position:center center;display:block;background:white;border:0}.ap-annex{padding:15mm 14mm;font-size:9pt;color:#182b22}.ap-annex h1{font-size:17pt;margin:0 0 4mm;color:#154e36}.ap-annex h2{font-size:11pt;margin:0 0 5mm}.ap-annex .ap-sub{border-bottom:1px solid #a6bcb0;padding-bottom:5mm;margin-bottom:6mm}.ap-annex table{border-collapse:collapse;width:100%;table-layout:fixed;margin:2mm 0 5mm}.ap-annex th,.ap-annex td{border:1px solid #b7c8be;padding:2.5mm;text-align:left;overflow-wrap:anywhere;vertical-align:top}.ap-annex th{background:#edf3ef}.ap-annex .annex-item{border:1px solid #b7c8be;padding:3mm;margin-bottom:5mm;break-inside:avoid;page-break-inside:avoid}.ap-annex .annex-item h3{font-size:11pt;margin:0 0 2mm}.ap-annex .annex-photo{width:43mm;height:32mm;object-fit:contain;display:block;border:1px solid #c9d6ce}.ap-annex .annex-item-grid{display:grid;grid-template-columns:1fr 43mm;gap:5mm}.ap-annex .annex-foot{font-size:8pt;color:#52645a}.ap-watermark{position:absolute;top:46%;left:25%;transform:rotate(-25deg);font-size:30pt;font-weight:800;color:#b22;opacity:.25}
  @media print{body{padding:0;background:white}.ap-sheet{width:210mm;height:297mm;box-shadow:none;break-after:page}.ap-sheet+.ap-sheet{margin-top:0}.ap-sheet:last-child{break-after:auto}.ap-template{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
  </style></head><body>${content}${annexHtml}</body></html>`;
  const old=document.getElementById('mhsApprovedOverlay');if(old)old.remove();
@@ -766,7 +671,7 @@ function apD(s,kind,forTransport=false){
   add(423,273,d.autoStartTime||'',55);add(452,290,d.autoEndTime||'',60);
   add(520,341,d.autoVacuumStart||'',43);add(520,356,d.autoVacuumConstant||'',43);add(529,371,d.autoVacuumSpray||'',35);add(529,386,d.autoVacuumReduction||'',35);add(529,400,d.autoDryTime||'',35);
   add(240,453,d.autoProduct||'',105);add(269,513,d.clientDeliveryNo||'',70);add(260,530,apDate(d.autoEntryDate||''),96);add(298,551,d.autoExitDeliveryNo||'',54);add(253,563,apDate(d.autoExitDate||''),86);
-  add(17,619,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.autoObs||s.notes||''),337,7);add(65,707,state.company?.directorName||'',145);add(90,730,state.company?.directorLicense||'',115);
+  add(17,619,d.autoObs||s.notes||'',337,7);add(65,707,state.company?.directorName||'',145);add(90,730,state.company?.directorLicense||'',115);
  } else if(kind==='sheet'&&type==='mobiliario'){
   add(496,57,number,70);add(474,78,date,75);add(156,161,c.name,116);add(330,161,c.taxId,93);add(488,161,c.contact,95);add(84,180,c.address,183);add(369,180,[c.postalCode,c.province].filter(Boolean).join(' / '),188);add(80,200,c.phone,164);add(320,200,c.email,240);
   const rows=apRows(s);rows.slice(0,6).forEach((row,i)=>{const y=288+i*19;add(26,y,row.concept,172);add(213,y,row.units,36);add(256,y,row.condition,50);add(311,y,row.notes,83)});
@@ -776,17 +681,12 @@ function apD(s,kind,forTransport=false){
   const treat=String(d.furnTreatment||'').trim().toLowerCase();
   if(treat==='desinsectación'||treat==='desinsectacion')add(416,345,'X',9,7);
   else if(treat==='otros')add(416,369,'X',9,7);
-  add(415,529,d.furnCondition||'',150);add(26,623,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.furnObs||s.notes||''),540);add(89,706,state.company?.directorName||'',180);
-  // Solo en los huecos de OBSERVACIONES del modelo aprobado; no se rediseña la hoja.
-  const piece=rows[0];if(piece){const m3=autoVolume(piece);const dims=[piece.length,piece.width,piece.thickness].map(x=>String(x||'').trim()).join(' × ');
-   add(26,636,'Medidas (largo × ancho × grosor): '+dims+' m | Volumen: '+(m3?autoFour(m3).replace('.',','):'—')+' m³',525,8.2);
-   add(26,647,'Precio por unidad: '+(Number.isFinite(num(piece.price))?apMoney(num(piece.price))+' €':'Sin indicar')+' | Base total hoja: '+apMoney(furnMoneyBase(s.data))+' €',525,8.2);
-  }
+  add(415,529,d.furnCondition||'',150);add(26,623,'Ver anexo adjunto',540);add(89,706,state.company?.directorName||'',180);
  } else if(kind==='delivery'&&type==='autoclave'){
   add(500,81,number,74);add(506,95,date,73);add(122,153,c.name,177);add(348,153,c.address,229);add(69,171,c.phone,101);add(226,171,c.email,178);add(452,171,c.contact,115);
   const rows=apRows(s);
   rows.slice(0,7).forEach((v,i)=>{const y=248+i*15.8;add(27,y,v.concept||'',112);add(148,y,v.units||'',30);add(186,y,v.length||'',43);add(234,y,v.width||'',43);add(285,y,v.thickness||'',38);add(339,y,d.autoMoisture||'',45);add(395,y,d.autoUseClass||'',55);add(456,y,v.notes||'',123,6.3)});
-  add(275,375,'Tratamiento de madera en autoclave',270);add(323,389,d.autoStartTime||'',80);add(519,389,d.autoEndTime||'',55);add(311,406,d.autoProduct||'',165);add(333,422,d.autoUseClass||'',160);add(234,473,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.autoObs||s.notes||r.notes||''),330);
+  add(275,375,'Tratamiento de madera en autoclave',270);add(323,389,d.autoStartTime||'',80);add(519,389,d.autoEndTime||'',55);add(311,406,d.autoProduct||'',165);add(333,422,d.autoUseClass||'',160);add(234,473,d.autoObs||s.notes||r.notes||'',330);
   add(118,548,t.company||r.carrier||'',180);add(106,566,t.plate||r.plate||'',135);add(348,566,t.driver||r.receiver||'',165);add(53,583,t.driverId||'',115);
  } else if(kind==='delivery'&&type==='mobiliario'){
   add(467,86,number,108);add(496,99,date,75);add(147,159,c.name,189);add(403,159,c.address,174);add(80,179,c.phone,118);add(254,179,c.email,154);add(473,179,c.contact,99);
@@ -796,10 +696,7 @@ function apD(s,kind,forTransport=false){
   add(365,408,apDate(d.furnPickupDate),175,7.2);
   add(406,423,apDate(d.furnDeliveryDate),132,7.2);
   add(335,439,d.furnTreatment,208,7.2);
-  add(264,489,d.mhsObsDefaultV1?'Observaciones y datos del biocida: ver anexo adjunto':(d.furnObs||s.notes||r.notes||''),298,7.2);
-  // Albarán: conjunto de muebles, sin precios; los m³ son únicamente información logística.
-  const volume=autoSum(apRows(s).map(autoVolume).filter(Boolean));
-  add(264,507,'Volumen de los muebles de esta página: '+autoFour(volume).replace('.',',')+' m³',295,7.1);
+  add(264,489,'Ver anexo adjunto',298,7.2);
   add(132,562,t.company||r.carrier||'',180);add(124,580,t.plate||r.plate||'',130);add(371,580,t.driver||r.receiver||'',186);
  }
  return fields;
@@ -867,6 +764,36 @@ function apInvoice(s,invoice=null,results=null){
  apPreview(APPROVED_DOCS[type].invoice,pages.length===1?pages[0]:pages,{title:'Factura '+type,draft:!!invoice&&invoice.status!=='EMITIDA'||!invoice,readable:furniture});
 }
 
+// El anexo A4 es dinámico. Se adjunta a la misma impresión, después del modelo.
+// Nunca se modifican los PDF originales ni los datos guardados de los muebles.
+function apFurnitureAnnex(s,kind){
+ if(s.type!=='mobiliario'||!['sheet','delivery'].includes(kind))return [];
+ const d=s.data||{},rows=apRows(s),withPrice=kind==='sheet',perPage=3;
+ const all=rows.length?rows:[{concept:d.furnDesc||'Mobiliario',units:d.furnQty||'',length:'',width:'',thickness:''}];
+ const pages=[];
+ for(let start=0;start<all.length;start+=perPage){
+  const part=all.slice(start,start+perPage);
+  const heading=`<h1>ANEXO A4 · MOBILIARIO</h1><div class="ap-sub"><b>${apSafe(kind==='sheet'?'Hoja de servicio':'Albarán de entrada / salida')}</b> · ${apSafe(s.number||'')} · ${apSafe(apDate(s.date))}<div>Cliente: ${apSafe(apClient(s).name||'')}</div></div>`;
+  const blocks=part.map((r,i)=>{
+   const idx=start+i+1,vol=autoVolume(r),volTxt=vol?autoFour(vol).replace('.',',')+' m³':'No calculado';
+   const measure=['length','width','thickness'].map(k=>String(r[k]??'').trim()).map(v=>v||'—');
+   const photo=s.photos?.['furn_'+r.id]||(idx===1?s.photos?.before:'')||'';
+   const photoHtml=/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(photo)?`<img class="annex-photo" src="${photo}" alt="Fotografía del mueble ${idx}">`:'<div class="annex-foot">Sin fotografía del mueble</div>';
+   let priceHtml='';
+   if(withPrice){
+    const unit=num(r.price),qty=num(r.units),discount=num(r.discount),vat=num(r.vat);
+    const valid=Number.isFinite(unit)&&Number.isFinite(qty)&&qty>0&&Number.isFinite(discount)&&discount>=0&&discount<=100&&Number.isFinite(vat)&&vat>=0&&vat<=100;
+    const base=valid?Math.round(qty*unit*(1-discount/100)*100)/100:null;
+    priceHtml=`<p><b>Precio unitario:</b> ${!String(r.price??'').trim()||!Number.isFinite(unit)?'Sin indicar':apSafe(apMoney(unit))+' €'} · <b>Descuento:</b> ${apSafe(r.discount??'0')} % · <b>IVA:</b> ${apSafe(r.vat??'21')} %<br><b>Base de esta pieza:</b> ${base===null?'No calculada':apMoney(base)+' €'}</p>`;
+   }
+   return `<section class="annex-item"><h3>${idx}. ${apSafe(r.concept||'Mueble sin descripción')}</h3><div class="annex-item-grid"><div><table><tr><th>Unidades</th><th>Largo (m)</th><th>Ancho (m)</th><th>Grosor (m)</th></tr><tr><td>${apSafe(r.units||'—')}</td><td>${apSafe(measure[0])}</td><td>${apSafe(measure[1])}</td><td>${apSafe(measure[2])}</td></tr></table><p><b>Volumen para espacio en autoclave:</b> ${apSafe(volTxt)}</p>${priceHtml}</div>${photoHtml}</div></section>`;
+  }).join('');
+  const notes=(start+perPage>=all.length)?`<p><b>Observaciones de la hoja:</b> ${apSafe(d.furnObs||s.notes||'Sin observaciones adicionales')}</p>`:'';
+  const totals=(withPrice&&start+perPage>=all.length)?`<p><b>Base total de mobiliario (sin IVA):</b> ${apMoney(furnMoneyBase(d))} €</p>`:'';
+  pages.push(heading+blocks+notes+totals+`<p class="annex-foot">Anexo ${pages.length+1} de ${Math.ceil(all.length/perPage)} · Medidas para capacidad; el volumen no determina el precio.</p>`);
+ }
+ return pages;
+}
 function apMedia(s,kind,transport=false){
  const m=[],d=s.data||{},r=d.documentReceipt||{},t=d.transport||{};
  const photo=s.photos?.before||'';
@@ -874,7 +801,7 @@ function apMedia(s,kind,transport=false){
  if(s.type==='mobiliario'){
   if(kind==='sheet'){
    const rows=apRows(s);
-   rows.forEach((row,i)=>{const pic=s.photos?.['furn_'+row.id];if(pic)m.push({src:pic,page:i,x:27,y:457,w:174,h:101})});
+   rows.forEach((row,i)=>{const pic=s.photos?.['furn_'+row.id]||(i===0?s.photos?.before:'');if(pic)m.push({src:pic,page:i,x:27,y:457,w:174,h:101})});
   }else if(kind==='delivery'&&s.photos?.furnGroup){
    m.push({src:s.photos.furnGroup,page:0,x:31,y:414,w:195,h:103}); // casilla interior de FOTOGRAFÍA DEL MOBILIARIO
   }
@@ -899,7 +826,6 @@ function apDocumentPages(s,kind,forTransport=false){
   for(let i=0;i<count;i++){
    const segment={...s,data:{...(s.data||{}),furnItems:rows.slice(i*perPage,(i+1)*perPage)}};
    const fields=apD(segment,kind,forTransport);
-   if(isSheet){const line=fields.find(f=>String(f[2]).startsWith('Precio por unidad:'));if(line)line[2]=line[2].replace(/Base total hoja:.*$/, 'Base total hoja: '+apMoney(furnMoneyBase(s.data))+' €')}
    if(count>1)fields.push([462,806,`${isSheet?'Mueble':'Página'} ${i+1} de ${count}`,120,8,'font-weight:700']);
    pages.push(fields);
   }
@@ -923,7 +849,7 @@ const apLegacyPrintService=printServiceDocument;
 printServiceDocument=function(s){
  if(!APPROVED_DOCS[s.type])return apLegacyPrintService(s);
  const r=s.data?.documentReceipt||{},kind=r.kind==='Albarán'?'delivery':'sheet';
- const fields=apDocumentPages(s,kind);if(fields)apPreview(APPROVED_DOCS[s.type][kind],fields,{title:kind==='sheet'?'Hoja de servicio aprobada':'Albarán aprobado',media:apMedia(s,kind),readable:s.type==='mobiliario',obsAnnex:mhsObsAnnex(s,kind)});
+ const fields=apDocumentPages(s,kind);if(fields)apPreview(APPROVED_DOCS[s.type][kind],fields,{title:kind==='sheet'?'Hoja de servicio aprobada':'Albarán aprobado',media:apMedia(s,kind),readable:s.type==='mobiliario',annexPages:apFurnitureAnnex(s,kind)});
 };
 const apLegacyPrintTransport=printTransport;
 printTransport=function(s){
@@ -931,7 +857,7 @@ printTransport=function(s){
  const t=s.data?.transport||{};
  if(!t.receiver||!t.signDate||!t.signature){alert('El albarán necesita firma de recepción antes de imprimir.');return}
  const fields=apDocumentPages(s,'delivery',true);
- if(fields)apPreview(APPROVED_DOCS[s.type].delivery,fields,{title:'Albarán aprobado',media:apMedia(s,'delivery',true),readable:s.type==='mobiliario',obsAnnex:mhsObsAnnex(s,'delivery')});
+ if(fields)apPreview(APPROVED_DOCS[s.type].delivery,fields,{title:'Albarán aprobado',media:apMedia(s,'delivery',true),readable:s.type==='mobiliario',annexPages:apFurnitureAnnex(s,'delivery')});
 };
 const apLegacyPrintInvoice=printInvoice;
 printInvoice=function(i){
@@ -943,82 +869,5 @@ printInvoice=function(i){
 };
 const apLegacyBillingPreview=printBillingPreview;
 printBillingPreview=function(s,r){if(!APPROVED_DOCS[s.type])return apLegacyBillingPreview(s,r);apInvoice(s,null,r);};
-
-
-// MHSARBIDE: autoguardado sin botones. Captura los cambios de formularios
-// y los conserva en IndexedDB antes de ponerlos en la cola de Supabase.
-// La cola y los adjuntos son responsabilidad del módulo existente de sincronización.
-let mhsAutoTimer=null;
-function mhsAutoCapture(){
- const root=document.getElementById('app');
- if(!root)return;
- const current=getCurrent();
- try{
-  if(current && root.querySelector('#saveBtn')){
-   const collect={madera:collectMadera,ddd:collectDDD,autoclave:collectAutoclave,mobiliario:collectMobiliario,termitas:collectTermitas}[current.type];
-   if(collect){collect(current);save();}
-  }else if(current && root.querySelector('#docSave')){
-   const r=current.data.documentReceipt=current.data.documentReceipt||{};
-   const map={docKind:'kind',docNo:'number',docDate:'date',docNotes:'notes',docReceiver:'receiver',docRole:'receiverRole',docSignDate:'signDate',docCarrier:'carrier',docPlate:'plate'};
-   for(const [id,key] of Object.entries(map)){const el=document.getElementById(id);if(el)r[key]=el.value;}
-   if(document.getElementById('docSignature')?._hasInk?.())r.signature=document.getElementById('docSignature')._data();
-   current.updatedAt=new Date().toISOString();save();
-  }else if(current && root.querySelector('#trSave')){
-   // La firma solo es obligatoria al imprimir/finalizar, no al guardar un borrador.
-   saveTransport(current,false);
-  }else if(root.querySelector('#coSave')){
-   const fields={coName:'name',coCommercial:'commercialName',coTax:'taxId',coAddress:'address',coPostal:'postalCode',coProvince:'province',coPhone:'phone',coEmail:'email',coReg:'registration',coDirectorName:'directorName',coDirectorSurname:'directorSurname'};
-   state.company=state.company||{};
-   for(const [id,key] of Object.entries(fields)){const el=document.getElementById(id);if(el)state.company[key]=el.value;}
-   const next=document.getElementById('serviceNext');
-   if(next)state.numbering={...(state.numbering||{}),serviceNext:Math.max(1,Math.trunc(Number(next.value)||26001))};
-   save();
-  }else if(root.querySelector('#invSave')){
-   const id=root.querySelector('#invSave').dataset.mhsAutosaveId;
-   let item=id&&state.invoices.find(i=>i.id===id);
-   if(!item){item={id:uid(),createdAt:new Date().toISOString()};state.invoices.push(item);root.querySelector('#invSave').dataset.mhsAutosaveId=item.id;}
-   const fields={invNo:'number',invDate:'date',invClient:'clientId',invService:'serviceId',invConcept:'concept',invVat:'vat',invStatus:'status',invNotes:'notes'};
-   for(const [field,key] of Object.entries(fields)){const el=document.getElementById(field);if(el)item[key]=el.value;}
-   item.base=num(document.getElementById('invBase')?.value)||0;item.total=item.base*(1+(num(item.vat)||0)/100);item.updatedAt=new Date().toISOString();save();
-  }else if(root.querySelector('#budSave')){
-   const button=root.querySelector('#budSave'),id=button.dataset.mhsAutosaveId;
-   let item=id&&state.budgets.find(b=>b.id===id);
-   if(!item){item={id:uid(),createdAt:new Date().toISOString()};state.budgets.push(item);button.dataset.mhsAutosaveId=item.id;}
-   const fields={budNo:'number',budDate:'date',budClient:'clientId',budConcept:'concept',budVat:'vat',budStatus:'status',budNotes:'notes'};
-   for(const [field,key] of Object.entries(fields)){const el=document.getElementById(field);if(el)item[key]=el.value;}
-   item.base=num(document.getElementById('budBase')?.value)||0;item.total=item.base*(1+(num(item.vat)||0)/100);item.updatedAt=new Date().toISOString();save();
-  }
- }catch(e){console.error('Autoguardado de formulario',e)}
-}
-function mhsAutoSchedule(e){
- const el=e.target;
- if(!el?.matches?.('input,textarea,select'))return;
- if(el.type==='file'||el.type==='password'||el.type==='hidden'||el.readOnly||el.disabled)return;
- if(!document.getElementById('app')?.contains(el))return;
- clearTimeout(mhsAutoTimer);
- if(e.type==='change'){mhsAutoTimer=null;mhsAutoCapture();return;}
- mhsAutoTimer=setTimeout(()=>{mhsAutoTimer=null;mhsAutoCapture()},550);
-}
-// Antes de cambiar de sección, enviar al guardado el último texto escrito.
-document.getElementById('app')?.addEventListener('input',mhsAutoSchedule);
-document.getElementById('app')?.addEventListener('change',mhsAutoSchedule);
-document.getElementById('app')?.addEventListener('pointerup',e=>{
- if(e.target?.matches?.('#docSignature,#deliverySignature')){clearTimeout(mhsAutoTimer);mhsAutoTimer=setTimeout(()=>{mhsAutoTimer=null;mhsAutoCapture()},150)}
-});
-document.getElementById('app')?.addEventListener('click',e=>{
- if(!mhsAutoTimer)return;
- if(!e.target.closest('button,[data-module],[data-area],.side-link'))return;
- clearTimeout(mhsAutoTimer);mhsAutoTimer=null;mhsAutoCapture();
-},true);
-document.addEventListener('click',e=>{
- if(!mhsAutoTimer||!e.target.closest?.('.side-link,#btnDashboard,#btnSettings,#btnClients,#btnProducts,[data-module],[data-area],#btnExit'))return;
- clearTimeout(mhsAutoTimer);mhsAutoTimer=null;mhsAutoCapture();
-},true);
-document.addEventListener('visibilitychange',()=>{
- if(document.hidden&&mhsAutoTimer){clearTimeout(mhsAutoTimer);mhsAutoTimer=null;mhsAutoCapture();}
-});
-window.addEventListener('pagehide',()=>{
- if(mhsAutoTimer){clearTimeout(mhsAutoTimer);mhsAutoTimer=null;mhsAutoCapture();}
-});
 
 })();

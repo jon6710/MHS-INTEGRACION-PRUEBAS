@@ -1,0 +1,28 @@
+MHS-INTEGRACION-PRUEBAS — CORRECCIÓN PDF MOBILIARIO
+
+Se mantiene la aplicación de integración y la estructura de datos existente.
+No se modifican los 6 PDF de plantillas-aprobadas, los 6 PNG de approved-backgrounds,
+ni la sincronización Cloudflare/Supabase, ni la numeración, ni el autoguardado.
+
+Cambios en app.js:
+- En la hoja de servicio y albarán de Mobiliario se imprime exclusivamente
+  "Ver anexo adjunto" en Observaciones. No se imprimen ahí medidas, volúmenes ni precios.
+- Al imprimir se añaden una o varias páginas A4 de anexo al final del documento.
+  El anexo recoge las dimensiones, unidades, volumen y fotografía por mueble.
+  Solo el anexo de hoja de servicio incorpora importes; el de albarán no contiene precios.
+- Se contempla mobiliario legado con descripción/cantidad sin furnItems.
+- Las fotografías se insertan en tamaño contenido (object-fit:contain) dentro del marco.
+  Se conserva la foto antigua 'before' como alternativa para el primer mueble.
+- Se actualiza el nombre de caché del service worker para cargar el JavaScript nuevo.
+
+PRUEBAS AUTOMÁTICAS ESTÁTICAS / LÓGICAS:
+- node --check app.js: correcto.
+- Validado por prueba JavaScript: Observaciones de hoja y albarán, anexo,
+  distinción de precios, registros antiguos y paginación 8 muebles.
+- Confirmado por comparación binaria: los 6 PDF de referencia coinciden con V54.
+- Autoclave: comprobadas las rutas y datos básicos de documento, sin cambios.
+
+PENDIENTE DE REVISIÓN MANUAL:
+- Abrir en navegador de pruebas; imprimir hoja, albarán y factura con datos reales
+  y revisar encuadre en la impresora/PDF del navegador antes de publicar.
+- Este ZIP no está publicado en GitHub ni conectado/modificado en Supabase.
